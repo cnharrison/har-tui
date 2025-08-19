@@ -169,3 +169,30 @@ func GenerateDescriptiveFilename(entry HAREntry, suffix string) string {
 	
 	return filename
 }
+
+// SaveFilteredHAR saves filtered HAR entries to a new file
+func SaveFilteredHAR(originalHAR *HARFile, filteredIndices []int, outputPath string) error {
+	// Create a new HAR file with only filtered entries
+	filteredHAR := &HARFile{
+		Log: HARLog{
+			Version: originalHAR.Log.Version,
+			Entries: make([]HAREntry, 0, len(filteredIndices)),
+		},
+	}
+	
+	// Copy only the filtered entries
+	for _, idx := range filteredIndices {
+		if idx >= 0 && idx < len(originalHAR.Log.Entries) {
+			filteredHAR.Log.Entries = append(filteredHAR.Log.Entries, originalHAR.Log.Entries[idx])
+		}
+	}
+	
+	// Marshal to JSON with proper formatting
+	data, err := json.MarshalIndent(filteredHAR, "", "  ")
+	if err != nil {
+		return err
+	}
+	
+	// Write to file
+	return os.WriteFile(outputPath, data, 0644)
+}

@@ -41,6 +41,7 @@ func (app *Application) showHelpModal() {
   [cyan]y[white]            Copy modal - copy various request/response parts
   [cyan]E[white]            Edit request/response content in $EDITOR
   [cyan]R[white]            Replay current request
+  [cyan]S[white]            Save filtered HAR entries to new file
   [cyan]q[white]            Quit application`
 
 	// Create help text view

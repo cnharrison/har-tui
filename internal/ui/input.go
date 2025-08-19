@@ -251,6 +251,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			entry := app.harData.Log.Entries[entryIdx]
 			app.showCopyModal(entry)
 		}
+	case 'S': // Save filtered HAR to file
+		app.saveFilteredHAR()
 	}
 	return event
 }
