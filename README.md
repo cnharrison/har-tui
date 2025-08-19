@@ -116,6 +116,7 @@ make install
 | `m` | Generate markdown summary and copy to clipboard |
 | `E` | Edit request/response content in $EDITOR |
 | `R` | Replay current request |
+| `S` | Save filtered HAR entries to new file |
 | `?` | Show help |
 | `q` | Quit application |
 
