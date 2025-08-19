@@ -34,25 +34,6 @@ const (
 	durationScalingFactor = 0.8  // use 80% of chart width for duration scaling
 )
 
-// Supported time formats for HAR datetime parsing, in order of preference
-var supportedTimeFormats = []string{
-	"2006-01-02T15:04:05.000Z",     // HAR standard format with milliseconds
-	time.RFC3339Nano,                // RFC3339 with nanoseconds
-	time.RFC3339,                    // RFC3339 standard
-	"2006-01-02T15:04:05Z",         // HAR format without milliseconds
-	"2006-01-02T15:04:05.000-07:00", // HAR with timezone offset
-	"2006-01-02T15:04:05-07:00",     // RFC3339 with timezone offset
-}
-
-// parseHARDateTime robustly parses HAR datetime strings with multiple format support
-func parseHARDateTime(dateTime string) (time.Time, error) {
-	for _, format := range supportedTimeFormats {
-		if t, err := time.Parse(format, dateTime); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unable to parse datetime: %s", dateTime)
-}
 
 type WaterfallView struct {
 	*tview.Flex
@@ -187,7 +168,7 @@ func (wv *WaterfallView) Update(entries []har.HAREntry, indices []int) {
 	for _, idx := range filteredIndices {
 		entry := entries[idx]
 		
-		startTime, err := parseHARDateTime(entry.StartedDateTime)
+		startTime, err := har.ParseHARDateTime(entry.StartedDateTime)
 		if err != nil {
 			continue // Skip entries with unparseable timestamps
 		}
@@ -239,7 +220,7 @@ func (wv *WaterfallView) calculateTimings() {
 		}
 		
 		entry := wv.entries[idx]
-		startTime, err := parseHARDateTime(entry.StartedDateTime)
+		startTime, err := har.ParseHARDateTime(entry.StartedDateTime)
 		if err != nil {
 			continue // Skip entries with unparseable timestamps
 		}
@@ -287,8 +268,8 @@ func (wv *WaterfallView) renderWaterfall() {
 		entryI := wv.entries[sortedIndices[i]]
 		entryJ := wv.entries[sortedIndices[j]]
 		
-		startTimeI, errI := parseHARDateTime(entryI.StartedDateTime)
-		startTimeJ, errJ := parseHARDateTime(entryJ.StartedDateTime)
+		startTimeI, errI := har.ParseHARDateTime(entryI.StartedDateTime)
+		startTimeJ, errJ := har.ParseHARDateTime(entryJ.StartedDateTime)
 		
 		// Handle parsing errors - entries with unparseable times go last
 		if errI != nil && errJ == nil {
@@ -330,6 +311,9 @@ func (wv *WaterfallView) renderTimeScale() string {
 	scale.WriteString(fmt.Sprintf("%-*s", headerWidth, "[white]Time Scale (log):"))
 	
 	// Calculate tick marks for the logarithmic time scale
+	var labels []string
+	var positions []int
+	
 	for i := 0; i <= 10; i++ {
 		progress := float64(i) / 10.0
 		// Convert back from log scale to actual time
@@ -338,28 +322,44 @@ func (wv *WaterfallView) renderTimeScale() string {
 		
 		tickPos := int(float64(wv.chartWidth) * progress)
 		
-		// Add spacing to position the tick mark
+		// Format label consistently
+		var label string
+		if actualTime < 1000 {
+			label = fmt.Sprintf("[dim]%.0f[white]", actualTime)
+		} else {
+			label = fmt.Sprintf("[dim]%.1fs[white]", actualTime/1000)
+		}
+		
+		labels = append(labels, label)
+		positions = append(positions, tickPos)
+	}
+	
+	// Render with proper spacing based on actual label lengths
+	for i, label := range labels {
 		if i > 0 {
-			prevProgress := float64(i-1) / 10.0
-			prevTickPos := int(float64(wv.chartWidth) * prevProgress)
-			spacing := tickPos - prevTickPos - 4 // Account for previous label width
+			// Calculate spacing based on previous label's actual length and position
+			prevLabelLen := len(stripColorTags(labels[i-1]))
+			spacing := positions[i] - positions[i-1] - prevLabelLen
 			if spacing > 0 {
 				scale.WriteString(strings.Repeat(" ", spacing))
 			}
 		}
-		
-		if actualTime < 1000 {
-			scale.WriteString(fmt.Sprintf("[dim]%.0f[white]", actualTime))
-		} else {
-			scale.WriteString(fmt.Sprintf("[dim]%.1fs[white]", actualTime/1000))
-		}
+		scale.WriteString(label)
 	}
 	
 	return scale.String()
 }
 
+// stripColorTags removes tview color tags to get actual display length
+func stripColorTags(text string) string {
+	// Simple regex replacement would be better, but this works for our case
+	result := strings.ReplaceAll(text, "[dim]", "")
+	result = strings.ReplaceAll(result, "[white]", "")
+	return result
+}
+
 func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSelected bool) string {
-	startTime, err := parseHARDateTime(entry.StartedDateTime)
+	startTime, err := har.ParseHARDateTime(entry.StartedDateTime)
 	if err != nil {
 		// Use current time as fallback for rendering purposes
 		startTime = time.Now()

@@ -14,12 +14,9 @@ func GenerateMarkdownSummary(entry har.HAREntry) string {
 	u, _ := url.Parse(entry.Request.URL)
 	
 	// Parse timestamp for better date display
-	timestamp, err := time.Parse("2006-01-02T15:04:05.000Z", entry.StartedDateTime)
+	timestamp, err := har.ParseHARDateTime(entry.StartedDateTime)
 	if err != nil {
-		timestamp, err = time.Parse(time.RFC3339, entry.StartedDateTime)
-		if err != nil {
-			timestamp = time.Now()
-		}
+		timestamp = time.Now()
 	}
 	
 	var summary strings.Builder
