@@ -404,13 +404,13 @@ func (app *Application) updateFilterBar() {
 			filterText.WriteString(fmt.Sprintf("[black:yellow:b] %s [white:black:-] ", strings.ToUpper(filterType)))
 		} else if i == app.selectedFilterIndex {
 			// Just selected (navigating) - dim highlight
-			filterText.WriteString(fmt.Sprintf("[white:blue:b] %s [white:black:-] ", strings.ToUpper(filterType)))
+			filterText.WriteString(fmt.Sprintf("[magenta:blue:b] %s [white:black:-] ", strings.ToUpper(filterType)))
 		} else if filterType == app.filterState.ActiveTypeFilter {
 			// Just active - colored but not selected
-			filterText.WriteString(fmt.Sprintf("[black:green:b] %s [white:black:-] ", strings.ToUpper(filterType)))
+			filterText.WriteString(fmt.Sprintf("[magenta:green:b] %s [white:black:-] ", strings.ToUpper(filterType)))
 		} else {
 			// Regular filter button - boxed appearance
-			filterText.WriteString(fmt.Sprintf("[blue:black:b] %s [white:black:-] ", strings.ToUpper(filterType)))
+			filterText.WriteString(fmt.Sprintf("[magenta:black:b] %s [white:black:-] ", strings.ToUpper(filterType)))
 		}
 	}
 	
@@ -591,4 +591,21 @@ func (app *Application) formatTimings(timings har.HARTimings, totalTime float64)
 	
 	result.WriteString(fmt.Sprintf("\n[yellow]Total Time:[white] %.2fms", totalTime))
 	return result.String()
+}
+
+// saveFilteredHAR saves the currently filtered HAR entries to a new file
+func (app *Application) saveFilteredHAR() {
+	// Generate descriptive filename based on current filters
+	filename := app.filterState.GenerateFilteredFilename(app.filename)
+	
+	// Save the filtered HAR file
+	if err := har.SaveFilteredHAR(app.harData, app.filteredEntries, filename); err != nil {
+		app.showStatusMessage(fmt.Sprintf("Error saving filtered HAR: %v", err))
+		return
+	}
+	
+	// Show success message with entry count
+	entryCount := len(app.filteredEntries)
+	totalCount := len(app.harData.Log.Entries)
+	app.showStatusMessage(fmt.Sprintf("Saved %d/%d entries to %s", entryCount, totalCount, filename))
 }
