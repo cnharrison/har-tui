@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cnharrison/har-tui/internal/har"
+	"github.com/cnharrison/har-tui/internal/util"
 )
 
 // FilterState holds the current filtering state
@@ -85,13 +86,13 @@ func (f *FilterState) FilterEntriesWithIndex(entries []har.HAREntry, index *har.
 	// Apply error filter using index
 	if f.ShowErrorsOnly {
 		errorIndices := index.GetErrorIndices(entries)
-		result = intersectIndices(result, errorIndices)
+		result = util.IntersectIndices(result, errorIndices)
 	}
 	
 	// Apply text filter (still O(n) but only on filtered set)
 	if f.FilterText != "" {
 		textIndices := index.FilterByText(entries, f.FilterText)
-		result = intersectIndices(result, textIndices)
+		result = util.IntersectIndices(result, textIndices)
 	}
 	
 	// Sort if requested
@@ -104,21 +105,6 @@ func (f *FilterState) FilterEntriesWithIndex(entries []har.HAREntry, index *har.
 	return result
 }
 
-// intersectIndices returns intersection of two sorted index slices
-func intersectIndices(a, b []int) []int {
-	setA := make(map[int]bool)
-	for _, v := range a {
-		setA[v] = true
-	}
-	
-	var result []int
-	for _, v := range b {
-		if setA[v] {
-			result = append(result, v)
-		}
-	}
-	return result
-}
 
 // Reset resets all filters to their default state
 func (f *FilterState) Reset() {

@@ -115,20 +115,7 @@ func (idx *EntryIndex) FilterByText(entries []HAREntry, text string) []int {
 	return result
 }
 
-func intersectIndices(a, b []int) []int {
-	setA := make(map[int]bool)
-	for _, v := range a {
-		setA[v] = true
-	}
-	
-	var result []int
-	for _, v := range b {
-		if setA[v] {
-			result = append(result, v)
-		}
-	}
-	return result
-}
+// Use util.IntersectIndices for index intersection operations
 
 type StreamingLoader struct {
 	entries []HAREntry
