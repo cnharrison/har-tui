@@ -1,6 +1,6 @@
 # 🐱 HAR TUI DELUXE
 <a href="https://asciinema.org/a/BBe0iZNlqZlX5UMrgem4mGrE5" target="_blank"><img src="https://asciinema.org/a/BBe0iZNlqZlX5UMrgem4mGrE5.svg" /></a>
-The world's best TUI HAR viewer. Vibe coded. Vim inspired. Request type filters like on your browser's dev tools. Composable filters. Autodetection, prettification and formatting. Quickly copy any part of any request, or a summary of the whole request, to the clipboard. Quickly output to curl. TUI HAR viewer. You know you want it.
+The world's best TUI HAR viewer. Vibe coded. Vim inspired. Request type filters like on your browser's dev tools. Composable filters. Autodetection, prettification and formatting. Quickly copy any part of any request, or a summary of the whole request, to the clipboard. Quickly output to curl. Replay requests. TUI HAR viewer. You know you want it.
 
 ## 🛠 Installation
 
