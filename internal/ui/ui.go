@@ -23,6 +23,13 @@ type Application struct {
 	filterState *filter.FilterState
 	formatter   *format.ContentFormatter
 	
+	// Streaming components
+	streamingLoader *har.StreamingLoader
+	isLoading       bool
+	loadingProgress int
+	lastUpdateCount int
+	batchUpdateSize int
+	
 	// UI state
 	currentTab      int
 	filteredEntries []int
@@ -37,6 +44,7 @@ type Application struct {
 	// UI components
 	requests    *tview.List
 	filterBar   *tview.TextView
+	topPanel    *tview.Pages  // Switches between requests list and waterfall view
 	tabs        *tview.Pages
 	requestView *tview.TextView
 	responseView *tview.TextView
@@ -44,11 +52,15 @@ type Application struct {
 	cookiesView *tview.TextView
 	timingsView *tview.TextView
 	rawView     *tview.TextView
+	waterfallView *WaterfallView
 	topBar      *tview.TextView
 	tabBar      *tview.TextView
 	bottomBar   *tview.TextView
 	searchInput *tview.InputField
 	layout      *tview.Flex
+	
+	// UI state for top panel
+	showWaterfall bool
 }
 
 // NewApplication creates a new HAR TUI application
@@ -64,12 +76,46 @@ func NewApplication(harData *har.HARFile, filename string) *Application {
 		filteredEntries: make([]int, 0),
 		focusOnBottom: false,
 		selectedFilterIndex: 0,
+		streamingLoader: har.NewStreamingLoader(),
+		isLoading: false,
+		loadingProgress: 0,
 	}
 	
-	// Initialize filtered entries
-	for i := range harData.Log.Entries {
-		app.filteredEntries = append(app.filteredEntries, i)
+	// Initialize filtered entries for existing data
+	if harData != nil {
+		for i := range harData.Log.Entries {
+			app.filteredEntries = append(app.filteredEntries, i)
+		}
 	}
+	
+	return app
+}
+
+// NewApplicationStreaming creates a new HAR TUI application with streaming loader
+func NewApplicationStreaming(filename string) *Application {
+	app := &Application{
+		filename:    filename,
+		app:         tview.NewApplication(),
+		filterState: filter.NewFilterState(),
+		formatter:   format.NewContentFormatter(),
+		currentTab:  0,
+		filteredEntries: make([]int, 0),
+		focusOnBottom: false,
+		selectedFilterIndex: 0,
+		streamingLoader: har.NewStreamingLoader(),
+		isLoading: true,
+		loadingProgress: 0,
+		lastUpdateCount: 0,
+		batchUpdateSize: 100,
+	}
+	
+	// Set up streaming callbacks
+	app.streamingLoader.SetCallbacks(
+		app.onEntryAdded,
+		app.onLoadingComplete,
+		app.onLoadingError,
+		app.onLoadingProgress,
+	)
 	
 	return app
 }
@@ -79,6 +125,11 @@ func (app *Application) Run() error {
 	app.setupUI()
 	app.setupEventHandling()
 	app.startAnimationLoop()
+	
+	// Start streaming load if needed
+	if app.isLoading {
+		app.streamingLoader.LoadHARFileStreaming(app.filename)
+	}
 	
 	// Initialize display
 	app.updateRequestsList()
@@ -136,6 +187,18 @@ func (app *Application) createComponents() {
 	app.cookiesView = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	app.timingsView = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
 	app.rawView = tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true)
+	app.waterfallView = NewWaterfallView()
+	app.waterfallView.SetSelectionChangedFunc(func(entryIndex int) {
+		if entryIndex >= 0 {
+			// Find the position in filteredEntries that corresponds to this entry index
+			for i, idx := range app.filteredEntries {
+				if idx == entryIndex {
+					app.updateTabContent(i)
+					break
+				}
+			}
+		}
+	})
 	
 	// Tab pages
 	app.tabs = tview.NewPages()
@@ -167,6 +230,7 @@ func (app *Application) styleComponents() {
 	app.bodyView.SetBorder(true).SetTitle(" 📄 Body ").SetTitleAlign(tview.AlignCenter).SetBorderColor(tcell.ColorDarkBlue)
 	app.cookiesView.SetBorder(true).SetTitle(" 🍪 Cookies ").SetTitleAlign(tview.AlignCenter).SetBorderColor(tcell.ColorDarkMagenta)
 	app.timingsView.SetBorder(true).SetTitle(" ⏱️  Timings ").SetTitleAlign(tview.AlignCenter).SetBorderColor(tcell.ColorDarkRed)
+	app.waterfallView.SetBorder(true).SetTitle(" 🌊 Waterfall ").SetTitleAlign(tview.AlignCenter).SetBorderColor(tcell.ColorDarkCyan)
 	app.rawView.SetBorder(true).SetTitle(" 🔍 Raw ").SetTitleAlign(tview.AlignCenter).SetBorderColor(tcell.ColorYellow)
 }
 
@@ -178,11 +242,16 @@ func (app *Application) createLayout() {
 		AddItem(app.searchInput, 0, 2, false).  // Search input (2x width)
 		AddItem(nil, 0, 1, false)               // Right spacer
 	
+	// Create top panel that can switch between requests list and waterfall view
+	app.topPanel = tview.NewPages()
+	app.topPanel.AddPage("requests", app.requests, true, true)
+	app.topPanel.AddPage("waterfall", app.waterfallView, true, false)
+	
 	// Create requests panel with filter bar and search
 	requestsPanel := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(app.filterBar, 1, 0, false).
 		AddItem(searchContainer, 3, 0, false).  // Height 3 for the bordered search box
-		AddItem(app.requests, 0, 1, true)
+		AddItem(app.topPanel, 0, 1, true)
 	
 	// Main layout
 	app.layout = tview.NewFlex().SetDirection(tview.FlexRow).
@@ -244,72 +313,70 @@ func (app *Application) startAnimationLoop() {
 	}()
 }
 
-// updateRequestsList updates the requests list based on current filters
 func (app *Application) updateRequestsList() {
 	app.requests.Clear()
-	app.filteredEntries = app.filterState.FilterEntries(app.harData.Log.Entries)
-	
+
+	var entries []har.HAREntry
+	if app.isLoading {
+		entries = app.streamingLoader.GetEntries()
+		if len(entries) > 0 {
+			app.filteredEntries = app.filterState.FilterEntriesWithIndex(entries, app.streamingLoader.GetIndex())
+		} else {
+			app.filteredEntries = []int{}
+		}
+	} else if app.harData != nil {
+		entries = app.harData.Log.Entries
+		app.filteredEntries = app.filterState.FilterEntries(entries)
+	} else {
+		return
+	}
+
 	for _, idx := range app.filteredEntries {
-		entry := app.harData.Log.Entries[idx]
-		
-		// Parse timestamp
-		startedDateTime, err := time.Parse("2006-01-02T15:04:05.000Z", entry.StartedDateTime)
-		if err != nil {
-			startedDateTime, err = time.Parse(time.RFC3339, entry.StartedDateTime)
-			if err != nil {
-				startedDateTime = time.Now()
-			}
+		if idx >= len(entries) {
+			continue
 		}
+		entry := entries[idx]
 		
-		// Format request item with enhanced visual separation
-		method := entry.Request.Method
-		statusColor := "white"
-		if entry.Response.Status >= 400 {
-			statusColor = "red"
-		} else if entry.Response.Status >= 300 {
-			statusColor = "yellow"
-		} else if entry.Response.Status >= 200 {
-			statusColor = "green"
-		}
-		
+		// Create display text for the request
 		u, _ := url.Parse(entry.Request.URL)
 		host := u.Host
 		path := u.Path
-		if path == "" {
-			path = "/"
+		if len(path) > 50 {
+			path = path[:47] + "..."
 		}
 		
-		// Extract IP if available
-		ip := app.extractIP(entry.Request.URL)
-		ipDisplay := ""
-		if ip != "" {
-			ipDisplay = fmt.Sprintf(" [dim]%s[white]", ip)
+		method := entry.Request.Method
+		status := entry.Response.Status
+		duration := fmt.Sprintf("%.0fms", entry.Time)
+		
+		// Color code by status
+		statusColor := "white"
+		if status >= 400 {
+			statusColor = "red"
+		} else if status >= 300 {
+			statusColor = "yellow"
+		} else if status >= 200 {
+			statusColor = "green"
 		}
 		
-		// Format components with visual separators
-		methodDisplay := fmt.Sprintf("[::b][cyan]%s[white]", method)
-		statusDisplay := fmt.Sprintf("[%s]%d[white]", statusColor, entry.Response.Status)
-		hostDisplay := fmt.Sprintf("[blue]%s[white]", host)
-		timeDisplay := fmt.Sprintf("[yellow]%.0fms[white]", entry.Time)
-		tsDisplay := fmt.Sprintf("[dim]%s[white]", startedDateTime.Format("15:04:05"))
+		displayText := fmt.Sprintf("[cyan]%-4s[white] [%s]%3d[white] [blue]%s[white] [dim]%s[white] [yellow]%s[white]", 
+			method, statusColor, status, host, path, duration)
 		
-		// Calculate available space for URL path
-		fixedWidth := len(method) + 3 + 6 + 8 + 8 + len(host) + len(ipDisplay) + 10
-		terminalWidth := 140
-		availableForPath := terminalWidth - fixedWidth
-		if availableForPath < 20 {
-			availableForPath = 20
+		app.requests.AddItem(displayText, "", 0, nil)
+	}
+	
+	// Update waterfall view if it's currently shown
+	if app.showWaterfall {
+		app.updateWaterfallView()
+	}
+	
+	// Update selection if we have items
+	if len(app.filteredEntries) > 0 {
+		currentItem := app.requests.GetCurrentItem()
+		if currentItem >= len(app.filteredEntries) {
+			app.requests.SetCurrentItem(0)
 		}
-		
-		pathDisplay := path
-		if len(pathDisplay) > availableForPath {
-			pathDisplay = pathDisplay[:availableForPath-3] + "..."
-		}
-		
-		listItem := fmt.Sprintf("%s │ %s │ %s%s%s │ %s │ %s", 
-			methodDisplay, statusDisplay, hostDisplay, ipDisplay, pathDisplay, timeDisplay, tsDisplay)
-		
-		app.requests.AddItem(listItem, "", 0, nil)
+		app.updateTabContent(app.requests.GetCurrentItem())
 	}
 }
 
@@ -320,7 +387,21 @@ func (app *Application) updateTabContent(selectedIndex int) {
 	}
 	
 	entryIdx := app.filteredEntries[selectedIndex]
-	entry := app.harData.Log.Entries[entryIdx]
+	
+	var entries []har.HAREntry
+	if app.isLoading {
+		entries = app.streamingLoader.GetEntries()
+	} else if app.harData != nil {
+		entries = app.harData.Log.Entries
+	} else {
+		return
+	}
+	
+	if entryIdx >= len(entries) {
+		return
+	}
+	
+	entry := entries[entryIdx]
 	
 	// Request tab
 	reqHeaders := app.formatter.FormatContent(app.prettyJSON(entry.Request.Headers), "json")
@@ -389,6 +470,7 @@ func (app *Application) updateTabContent(selectedIndex int) {
 	// Timings tab
 	app.timingsView.SetText(app.formatTimings(entry.Timings, entry.Time))
 	
+	
 	// Raw tab
 	app.rawView.SetText(fmt.Sprintf("[yellow]Complete Entry:[white]\n\n%s", app.prettyJSON(entry)))
 }
@@ -424,13 +506,36 @@ func (app *Application) updateTabBar() {
 	
 	for i, name := range tabNames {
 		if i == app.currentTab {
-			tabText.WriteString(fmt.Sprintf("[black:white:b] %s ", name))
+			tabText.WriteString(fmt.Sprintf("[black:white] %s [white:black]", name))
 		} else {
-			tabText.WriteString(fmt.Sprintf("[white:black] %s ", name))
+			tabText.WriteString(fmt.Sprintf(" [blue]%s[white] ", name))
+		}
+		if i < len(tabNames)-1 {
+			tabText.WriteString(" │ ")
 		}
 	}
 	
 	app.tabBar.SetText(tabText.String())
+}
+
+// updateWaterfallView updates the waterfall view with current filtered entries
+func (app *Application) updateWaterfallView() {
+	var waterfallEntries []har.HAREntry
+	if app.isLoading {
+		waterfallEntries = app.streamingLoader.GetEntries()
+	} else if app.harData != nil {
+		waterfallEntries = app.harData.Log.Entries
+	}
+	if len(waterfallEntries) > 0 {
+		app.waterfallView.Update(waterfallEntries, app.filteredEntries)
+		
+		// Synchronize waterfall selection with requests list selection
+		currentRequestsIndex := app.requests.GetCurrentItem()
+		if currentRequestsIndex >= 0 && currentRequestsIndex < len(app.filteredEntries) {
+			selectedEntryIndex := app.filteredEntries[currentRequestsIndex]
+			app.waterfallView.SetSelectedEntry(selectedEntryIndex)
+		}
+	}
 }
 
 // updateBottomBar updates the status/bottom bar
@@ -449,7 +554,22 @@ func (app *Application) updateBottomBar() {
 	} else {
 		// Show regular status
 		app.confirmationMessage = ""
-		statusText.WriteString(fmt.Sprintf("Showing %d/%d requests", len(app.filteredEntries), len(app.harData.Log.Entries)))
+		
+		var totalEntries int
+		if app.isLoading {
+			totalEntries = app.streamingLoader.GetEntryCount()
+			if app.loadingProgress > 0 {
+				statusText.WriteString(fmt.Sprintf("Loading... %d entries", app.loadingProgress))
+			} else {
+				statusText.WriteString("Starting load...")
+			}
+			if len(app.filteredEntries) > 0 {
+				statusText.WriteString(fmt.Sprintf(" | Showing %d/%d", len(app.filteredEntries), totalEntries))
+			}
+		} else if app.harData != nil {
+			totalEntries = len(app.harData.Log.Entries)
+			statusText.WriteString(fmt.Sprintf("Showing %d/%d requests", len(app.filteredEntries), totalEntries))
+		}
 		
 		if app.filterState.FilterText != "" {
 			statusText.WriteString(fmt.Sprintf(" | Filter: [cyan]%s[white]", app.filterState.FilterText))
@@ -473,38 +593,56 @@ func (app *Application) updateFocusStyles() {
 	arrow := app.getBlinkingArrows()
 	
 	if app.focusOnBottom {
-		// Top panel unfocused
-		app.requests.SetBorderColor(tcell.ColorDarkGray)
-		app.requests.SetTitle(" 🌐 HTTP Requests ")
+		// Top panel unfocused - update the appropriate view in topPanel
+		if app.showWaterfall {
+			app.waterfallView.SetBorderColor(tcell.ColorDarkGray)
+			app.waterfallView.SetTitle(" 🌊 Waterfall View ")
+		} else {
+			app.requests.SetBorderColor(tcell.ColorDarkGray)
+			app.requests.SetTitle(" 🌐 HTTP Requests ")
+		}
 		
 		// Bottom panel focused - add blinking arrow to current tab
 		tabNames := []string{"Request", "Response", "Body", "Cookies", "Timings", "Raw"}
-		views := []*tview.TextView{app.requestView, app.responseView, app.bodyView, app.cookiesView, app.timingsView, app.rawView}
+		views := []tview.Primitive{app.requestView, app.responseView, app.bodyView, app.cookiesView, app.timingsView, app.rawView}
 		colors := []tcell.Color{tcell.ColorDarkCyan, tcell.ColorDarkGreen, tcell.ColorDarkBlue, tcell.ColorDarkMagenta, tcell.ColorDarkRed, tcell.ColorYellow}
 		
 		for i, view := range views {
-			if i == app.currentTab {
-				view.SetBorderColor(tcell.ColorWhite)
-				view.SetTitle(fmt.Sprintf(" [yellow]%s[white] %s %s ", 
-					arrow, []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i], tabNames[i]))
-			} else {
-				view.SetBorderColor(colors[i])
-				view.SetTitle(" " + []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i] + " " + tabNames[i] + " ")
+			if textView, ok := view.(*tview.TextView); ok {
+				if i == app.currentTab {
+					textView.SetBorderColor(tcell.ColorWhite)
+					textView.SetTitle(fmt.Sprintf(" [yellow]%s[white] %s %s ", 
+						arrow, []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i], tabNames[i]))
+				} else {
+					textView.SetBorderColor(colors[i])
+					textView.SetTitle(" " + []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i] + " " + tabNames[i] + " ")
+				}
 			}
 		}
 	} else {
-		// Top panel focused - add blinking arrow to requests title
-		app.requests.SetBorderColor(tcell.ColorTeal)
-		app.requests.SetTitle(fmt.Sprintf(" [cyan]%s[white] 🌐 HTTP Requests ", arrow))
+		// Top panel focused - add blinking arrow to appropriate view
+		if app.showWaterfall {
+			app.waterfallView.SetBorderColor(tcell.ColorTeal)
+			app.waterfallView.SetTitle(fmt.Sprintf(" [cyan]%s[white] 🌊 Waterfall View ", arrow))
+			app.requests.SetBorderColor(tcell.ColorDarkGray)
+			app.requests.SetTitle(" 🌐 HTTP Requests ")
+		} else {
+			app.requests.SetBorderColor(tcell.ColorTeal)
+			app.requests.SetTitle(fmt.Sprintf(" [cyan]%s[white] 🌐 HTTP Requests ", arrow))
+			app.waterfallView.SetBorderColor(tcell.ColorDarkGray)
+			app.waterfallView.SetTitle(" 🌊 Waterfall View ")
+		}
 		
 		// Bottom panel unfocused - no arrows
 		tabNames := []string{"Request", "Response", "Body", "Cookies", "Timings", "Raw"}
-		views := []*tview.TextView{app.requestView, app.responseView, app.bodyView, app.cookiesView, app.timingsView, app.rawView}
+		views := []tview.Primitive{app.requestView, app.responseView, app.bodyView, app.cookiesView, app.timingsView, app.rawView}
 		colors := []tcell.Color{tcell.ColorDarkCyan, tcell.ColorDarkGreen, tcell.ColorDarkBlue, tcell.ColorDarkMagenta, tcell.ColorDarkRed, tcell.ColorYellow}
 		
 		for i, view := range views {
-			view.SetBorderColor(colors[i])
-			view.SetTitle(" " + []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i] + " " + tabNames[i] + " ")
+			if textView, ok := view.(*tview.TextView); ok {
+				textView.SetBorderColor(colors[i])
+				textView.SetTitle(" " + []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i] + " " + tabNames[i] + " ")
+			}
 		}
 	}
 }
@@ -520,7 +658,10 @@ func (app *Application) getBlinkingArrows() string {
 // getCurrentView returns the currently active text view for scrolling
 func (app *Application) getCurrentView() *tview.TextView {
 	views := []*tview.TextView{app.requestView, app.responseView, app.bodyView, app.cookiesView, app.timingsView, app.rawView}
-	return views[app.currentTab]
+	if app.currentTab >= 0 && app.currentTab < len(views) {
+		return views[app.currentTab]
+	}
+	return app.requestView
 }
 
 // showStatusMessage shows a temporary status message
@@ -593,19 +734,94 @@ func (app *Application) formatTimings(timings har.HARTimings, totalTime float64)
 	return result.String()
 }
 
+// Streaming callback functions
+func (app *Application) onEntryAdded(entry har.HAREntry, index int) {
+	// Batch updates to avoid rubberbanding during scrolling
+	entryCount := app.streamingLoader.GetEntryCount()
+	if entryCount-app.lastUpdateCount >= app.batchUpdateSize {
+		app.lastUpdateCount = entryCount
+		app.app.QueueUpdateDraw(func() {
+			// Preserve current selection
+			currentIndex := app.requests.GetCurrentItem()
+			app.updateRequestsList()
+			// Restore selection if valid
+			if currentIndex >= 0 && currentIndex < len(app.filteredEntries) {
+				app.requests.SetCurrentItem(currentIndex)
+			}
+			app.updateBottomBar()
+		})
+	} else {
+		// Just update progress without rebuilding list
+		app.app.QueueUpdateDraw(func() {
+			app.updateBottomBar()
+		})
+	}
+}
+
+func (app *Application) onLoadingComplete() {
+	app.app.QueueUpdateDraw(func() {
+		app.isLoading = false
+		app.harData = &har.HARFile{
+			Log: har.HARLog{
+				Version: "1.2",
+				Entries: app.streamingLoader.GetEntries(),
+			},
+		}
+		// Preserve current selection during final update
+		currentIndex := app.requests.GetCurrentItem()
+		app.updateRequestsList()
+		if currentIndex >= 0 && currentIndex < len(app.filteredEntries) {
+			app.requests.SetCurrentItem(currentIndex)
+		}
+		app.updateBottomBar()
+		app.showStatusMessage("Loading complete!")
+	})
+}
+
+func (app *Application) onLoadingError(err error) {
+	app.app.QueueUpdateDraw(func() {
+		app.isLoading = false
+		app.showStatusMessage(fmt.Sprintf("Loading error: %v", err))
+	})
+}
+
+func (app *Application) onLoadingProgress(count int) {
+	app.loadingProgress = count
+	app.app.QueueUpdateDraw(func() {
+		app.updateBottomBar()
+	})
+}
+
 // saveFilteredHAR saves the currently filtered HAR entries to a new file
 func (app *Application) saveFilteredHAR() {
 	// Generate descriptive filename based on current filters
 	filename := app.filterState.GenerateFilteredFilename(app.filename)
 	
+	var harData *har.HARFile
+	if app.isLoading {
+		harData = &har.HARFile{
+			Log: har.HARLog{
+				Version: "1.2",
+				Entries: app.streamingLoader.GetEntries(),
+			},
+		}
+	} else {
+		harData = app.harData
+	}
+	
 	// Save the filtered HAR file
-	if err := har.SaveFilteredHAR(app.harData, app.filteredEntries, filename); err != nil {
+	if err := har.SaveFilteredHAR(harData, app.filteredEntries, filename); err != nil {
 		app.showStatusMessage(fmt.Sprintf("Error saving filtered HAR: %v", err))
 		return
 	}
 	
 	// Show success message with entry count
 	entryCount := len(app.filteredEntries)
-	totalCount := len(app.harData.Log.Entries)
+	var totalCount int
+	if app.isLoading {
+		totalCount = app.streamingLoader.GetEntryCount()
+	} else {
+		totalCount = len(app.harData.Log.Entries)
+	}
 	app.showStatusMessage(fmt.Sprintf("Saved %d/%d entries to %s", entryCount, totalCount, filename))
 }

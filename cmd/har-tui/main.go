@@ -19,15 +19,26 @@ func main() {
 
 	harFile := os.Args[1]
 	
-	// Load HAR file
-	data, err := har.LoadHARFile(harFile)
-	if err != nil {
-		log.Fatalf("Error loading HAR file: %v", err)
-	}
+	// Check if we should use streaming mode (for large files or by default)
+	useStreaming := true
+	
+	if useStreaming {
+		// Start the TUI application with streaming loader
+		app := ui.NewApplicationStreaming(harFile)
+		if err := app.Run(); err != nil {
+			log.Fatalf("Error running application: %v", err)
+		}
+	} else {
+		// Legacy mode: Load entire HAR file at once
+		data, err := har.LoadHARFile(harFile)
+		if err != nil {
+			log.Fatalf("Error loading HAR file: %v", err)
+		}
 
-	// Start the TUI application
-	app := ui.NewApplication(data, harFile)
-	if err := app.Run(); err != nil {
-		log.Fatalf("Error running application: %v", err)
+		// Start the TUI application
+		app := ui.NewApplication(data, harFile)
+		if err := app.Run(); err != nil {
+			log.Fatalf("Error running application: %v", err)
+		}
 	}
 }

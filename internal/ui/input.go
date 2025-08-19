@@ -84,6 +84,17 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		app.app.Stop()
 	case 'i': // 'i' for focus switching between panels
 		app.focusOnBottom = !app.focusOnBottom
+		if app.focusOnBottom {
+			// Focus on bottom panel (tabs)
+			app.app.SetFocus(app.getCurrentView())
+		} else {
+			// Focus on top panel (requests list or waterfall)
+			if app.showWaterfall {
+				app.app.SetFocus(app.waterfallView)
+			} else {
+				app.app.SetFocus(app.requests)
+			}
+		}
 		app.updateFocusStyles()
 		return nil
 	case 'j':
@@ -91,6 +102,9 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			// Scroll down in current tab
 			row, _ := app.getCurrentView().GetScrollOffset()
 			app.getCurrentView().ScrollTo(row+1, 0)
+		} else if app.showWaterfall {
+			// Move down in waterfall selection
+			app.waterfallView.MoveDown()
 		} else if currentIndex < len(app.filteredEntries)-1 {
 			app.requests.SetCurrentItem(currentIndex + 1)
 		}
@@ -102,6 +116,9 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			if row > 0 {
 				app.getCurrentView().ScrollTo(row-1, 0)
 			}
+		} else if app.showWaterfall {
+			// Move up in waterfall selection
+			app.waterfallView.MoveUp()
 		} else if currentIndex > 0 {
 			app.requests.SetCurrentItem(currentIndex - 1)
 		}
@@ -109,6 +126,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case 'g':
 		if app.focusOnBottom {
 			app.getCurrentView().ScrollToBeginning()
+		} else if app.showWaterfall {
+			app.waterfallView.GoToTop()
 		} else {
 			app.requests.SetCurrentItem(0)
 		}
@@ -116,6 +135,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case 'G':
 		if app.focusOnBottom {
 			app.getCurrentView().ScrollToEnd()
+		} else if app.showWaterfall {
+			app.waterfallView.GoToBottom()
 		} else {
 			app.requests.SetCurrentItem(len(app.filteredEntries) - 1)
 		}
@@ -223,6 +244,34 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			} else {
 				app.showStatusMessage(fmt.Sprintf("Error saving cURL: %v", err))
 			}
+		}
+	case 'w':
+		// Toggle between requests list and waterfall view in top panel
+		if !app.focusOnBottom {
+			app.showWaterfall = !app.showWaterfall
+			if app.showWaterfall {
+				app.topPanel.SwitchToPage("waterfall")
+				app.updateWaterfallView()
+				app.showStatusMessage("Switched to waterfall view")
+			} else {
+				app.topPanel.SwitchToPage("requests")
+				app.showStatusMessage("Switched to requests list")
+			}
+		} else if app.showWaterfall {
+			// Toggle waterfall details when in waterfall view
+			app.waterfallView.ToggleDetails()
+		}
+		return nil
+	case '+', '=':
+		// Zoom in waterfall when in waterfall view
+		if app.showWaterfall {
+			app.waterfallView.ZoomIn()
+		}
+		return nil
+	case '-', '_':
+		// Zoom out waterfall when in waterfall view
+		if app.showWaterfall {
+			app.waterfallView.ZoomOut()
 		}
 	case 'R':
 		if currentIndex >= 0 && currentIndex < len(app.filteredEntries) {

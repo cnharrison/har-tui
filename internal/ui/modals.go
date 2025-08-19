@@ -23,8 +23,14 @@ func (app *Application) showHelpModal() {
   [cyan]g/G[white]          Go to top/bottom
   [cyan]h/l[white]          Switch tabs left/right (when focused on bottom)
   [cyan]i[white]            Switch focus between requests and detail panels
+  [cyan]w[white]            Toggle between requests list and waterfall view
   [cyan]Tab[white]          Switch between tabs in detail panel
   [cyan]Ctrl+D/U[white]     Page down/up in focused detail panel
+
+[yellow]Waterfall View:[white]
+  [cyan]w[white]            Toggle detailed timing breakdown (when in waterfall)
+  [cyan]+/=[white]          Zoom in (increase chart width)
+  [cyan]-/_[white]          Zoom out (decrease chart width)
 
 [yellow]Filtering & Sorting:[white]
   [cyan]/[white]            Open filter dialog (host/path)
