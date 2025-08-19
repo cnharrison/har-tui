@@ -28,7 +28,7 @@ func (app *Application) showHelpModal() {
   [cyan]Ctrl+D/U[white]     Page down/up in focused detail panel
 
 [yellow]Waterfall View:[white]
-  [cyan]w[white]            Toggle detailed timing breakdown (when in waterfall)
+  [cyan]d[white]            Toggle detailed timing breakdown (when in waterfall)
   [cyan]+/=[white]          Zoom in (increase chart width)
   [cyan]-/_[white]          Zoom out (decrease chart width)
 

@@ -99,6 +99,13 @@ make install
 | `Tab` / `Shift+Tab` | Navigate tabs in detail panel |
 | `Ctrl+D` / `Ctrl+U` | Page down/up in focused detail panel |
 
+### Waterfall View
+| Key | Action |
+|-----|--------|
+| `d` | Toggle detailed timing breakdown (when in waterfall) |
+| `+` / `=` | Zoom in (increase chart width) |
+| `-` / `_` | Zoom out (decrease chart width) |
+
 ### Filtering & Search
 | Key | Action |
 |-----|--------|

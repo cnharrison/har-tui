@@ -246,20 +246,22 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			}
 		}
 	case 'w':
-		// Toggle between requests list and waterfall view in top panel
-		if !app.focusOnBottom {
-			app.showWaterfall = !app.showWaterfall
-			if app.showWaterfall {
-				app.topPanel.SwitchToPage("waterfall")
-				app.updateWaterfallView()
-				app.showStatusMessage("Switched to waterfall view")
-			} else {
-				app.topPanel.SwitchToPage("requests")
-				app.showStatusMessage("Switched to requests list")
-			}
-		} else if app.showWaterfall {
-			// Toggle waterfall details when in waterfall view
+		// Always toggle between requests list and waterfall view (regardless of focus)
+		app.showWaterfall = !app.showWaterfall
+		if app.showWaterfall {
+			app.topPanel.SwitchToPage("waterfall")
+			app.updateWaterfallView()
+			app.showStatusMessage("Switched to waterfall view")
+		} else {
+			app.topPanel.SwitchToPage("requests")
+			app.showStatusMessage("Switched to requests list")
+		}
+		return nil
+	case 'd':
+		// Toggle detailed timing breakdown (when in waterfall view)
+		if app.showWaterfall {
 			app.waterfallView.ToggleDetails()
+			app.showStatusMessage("Toggled detailed timing breakdown")
 		}
 		return nil
 	case '+', '=':
