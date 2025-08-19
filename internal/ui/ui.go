@@ -547,10 +547,9 @@ func (app *Application) updateBottomBar() {
 		// Show animated confirmation
 		pulse := []string{"●", "◐", "◑", "◒", "◓", "○"}
 		pulseFrame := (app.animationFrame / 2) % len(pulse)
-		remaining := app.confirmationEnd.Sub(time.Now()).Seconds()
 		
-		statusText.WriteString(fmt.Sprintf(" [yellow]%s [white]%s [cyan](%.0fs remaining)[white]", 
-			pulse[pulseFrame], app.confirmationMessage, remaining))
+		statusText.WriteString(fmt.Sprintf(" [yellow]%s [white]%s", 
+			pulse[pulseFrame], app.confirmationMessage))
 	} else {
 		// Show regular status
 		app.confirmationMessage = ""

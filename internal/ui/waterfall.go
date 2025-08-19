@@ -15,7 +15,9 @@ import (
 )
 
 type WaterfallView struct {
-	*tview.List
+	*tview.Flex
+	headerView  *tview.TextView
+	listView    *tview.List
 	entries     []har.HAREntry
 	indices     []int
 	startTime   time.Time
@@ -27,20 +29,31 @@ type WaterfallView struct {
 }
 
 func NewWaterfallView() *WaterfallView {
-	list := tview.NewList()
-	list.ShowSecondaryText(false)
+	// Create header for time scale (sticky)
+	headerView := tview.NewTextView()
+	headerView.SetDynamicColors(true)
+	headerView.SetWrap(false)
+	
+	// Create list for requests (scrollable)
+	listView := tview.NewList()
+	listView.ShowSecondaryText(false)
+	listView.SetSelectedBackgroundColor(tcell.ColorDarkBlue)
+	listView.SetSelectedTextColor(tcell.ColorYellow)
+	listView.SetMainTextColor(tcell.ColorWhite)
+	
+	// Create flex container
+	flex := tview.NewFlex().SetDirection(tview.FlexRow)
+	flex.AddItem(headerView, 2, 0, false)  // Fixed height for header (time scale + separator)
+	flex.AddItem(listView, 0, 1, true)     // Flexible height for scrollable requests
 	
 	wv := &WaterfallView{
-		List:        list,
+		Flex:        flex,
+		headerView:  headerView,
+		listView:    listView,
 		chartWidth:  80, // Initial value, will be updated based on terminal width
 		showDetails: false,
 		selectedRow: 0,
 	}
-	
-	// Apply same colors as requests list for consistent highlighting
-	wv.SetSelectedBackgroundColor(tcell.ColorDarkBlue)
-	wv.SetSelectedTextColor(tcell.ColorYellow)
-	wv.SetMainTextColor(tcell.ColorWhite)
 	
 	return wv
 }
@@ -57,9 +70,9 @@ func (wv *WaterfallView) GetSelectedIndex() int {
 }
 
 func (wv *WaterfallView) MoveUp() {
-	currentItem := wv.GetCurrentItem()
+	currentItem := wv.listView.GetCurrentItem()
 	if currentItem > 0 {
-		wv.SetCurrentItem(currentItem - 1)
+		wv.listView.SetCurrentItem(currentItem - 1)
 		wv.selectedRow = currentItem - 1
 		if wv.onSelectionChanged != nil {
 			wv.onSelectionChanged(wv.GetSelectedIndex())
@@ -68,9 +81,9 @@ func (wv *WaterfallView) MoveUp() {
 }
 
 func (wv *WaterfallView) MoveDown() {
-	currentItem := wv.GetCurrentItem()
-	if currentItem < wv.GetItemCount()-1 {
-		wv.SetCurrentItem(currentItem + 1)
+	currentItem := wv.listView.GetCurrentItem()
+	if currentItem < wv.listView.GetItemCount()-1 {
+		wv.listView.SetCurrentItem(currentItem + 1)
 		wv.selectedRow = currentItem + 1
 		if wv.onSelectionChanged != nil {
 			wv.onSelectionChanged(wv.GetSelectedIndex())
@@ -81,7 +94,7 @@ func (wv *WaterfallView) MoveDown() {
 // scrollToSelection is no longer needed - List handles this automatically
 
 func (wv *WaterfallView) GoToTop() {
-	wv.SetCurrentItem(0)
+	wv.listView.SetCurrentItem(0)
 	wv.selectedRow = 0
 	if wv.onSelectionChanged != nil {
 		wv.onSelectionChanged(wv.GetSelectedIndex())
@@ -89,9 +102,9 @@ func (wv *WaterfallView) GoToTop() {
 }
 
 func (wv *WaterfallView) GoToBottom() {
-	if wv.GetItemCount() > 0 {
-		lastItem := wv.GetItemCount() - 1
-		wv.SetCurrentItem(lastItem)
+	if wv.listView.GetItemCount() > 0 {
+		lastItem := wv.listView.GetItemCount() - 1
+		wv.listView.SetCurrentItem(lastItem)
 		wv.selectedRow = lastItem
 		if wv.onSelectionChanged != nil {
 			wv.onSelectionChanged(wv.GetSelectedIndex())
@@ -104,8 +117,9 @@ func (wv *WaterfallView) Update(entries []har.HAREntry, indices []int) {
 	wv.indices = indices
 	
 	if len(entries) == 0 {
-		wv.Clear()
-		wv.AddItem("[dim]No requests to display[white]", "", 0, nil)
+		wv.listView.Clear()
+		wv.listView.AddItem("[dim]No requests to display[white]", "", 0, nil)
+		wv.headerView.SetText("")
 		return
 	}
 	
@@ -124,8 +138,9 @@ func (wv *WaterfallView) Update(entries []har.HAREntry, indices []int) {
 	wv.indices = filteredIndices
 	
 	if len(filteredIndices) == 0 {
-		wv.Clear()
-		wv.AddItem("[dim]No requests with measurable duration to display[white]", "", 0, nil)
+		wv.listView.Clear()
+		wv.listView.AddItem("[dim]No requests with measurable duration to display[white]", "", 0, nil)
+		wv.headerView.SetText("")
 		return
 	}
 	
@@ -168,8 +183,8 @@ func (wv *WaterfallView) SetSelectedEntry(entryIndex int) {
 	for i, idx := range wv.indices {
 		if idx == entryIndex {
 			wv.selectedRow = i
-			// Account for header items when setting list selection
-			wv.SetCurrentItem(i + 2) // +2 for time scale and separator
+			// No need to account for header items now since they're separate
+			wv.listView.SetCurrentItem(i)
 			return
 		}
 	}
@@ -226,12 +241,12 @@ func (wv *WaterfallView) renderWaterfall() {
 		}
 	}
 	
-	// Clear the list and rebuild it
-	wv.Clear()
+	// Update sticky header
+	headerText := wv.renderTimeScale() + "\n" + strings.Repeat("─", viewWidth)
+	wv.headerView.SetText(headerText)
 	
-	// Add header items
-	wv.AddItem(wv.renderTimeScale(), "", 0, nil)
-	wv.AddItem(strings.Repeat("─", viewWidth), "", 0, nil)
+	// Clear the list and rebuild content (no header items)
+	wv.listView.Clear()
 	
 	sortedIndices := make([]int, len(wv.indices))
 	copy(sortedIndices, wv.indices)
@@ -254,12 +269,12 @@ func (wv *WaterfallView) renderWaterfall() {
 		entry := wv.entries[idx]
 		
 		requestBar := wv.renderRequestBar(entry, i, false) // Lists handle selection automatically
-		wv.AddItem(requestBar, "", 0, nil)
+		wv.listView.AddItem(requestBar, "", 0, nil)
 	}
 	
-	// Restore selection
-	if wv.selectedRow >= 0 && wv.selectedRow < wv.GetItemCount()-2 { // Account for header items
-		wv.SetCurrentItem(wv.selectedRow + 2) // +2 for header items
+	// Restore selection (no need to account for header items now)
+	if wv.selectedRow >= 0 && wv.selectedRow < wv.listView.GetItemCount() {
+		wv.listView.SetCurrentItem(wv.selectedRow)
 	}
 }
 
