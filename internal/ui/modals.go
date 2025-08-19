@@ -122,8 +122,8 @@ func (app *Application) showReplayModal(entry har.HAREntry) {
 			app.app.SetRoot(app.layout, true)
 			
 			go func() {
-				curl := export.GenerateCurlCommand(entry)
-				cmd := exec.Command("sh", "-c", curl)
+				curlArgs := export.GenerateCurlArgs(entry)
+				cmd := exec.Command("curl", curlArgs...)
 				out, err := cmd.CombinedOutput()
 				
 				app.app.QueueUpdateDraw(func() {

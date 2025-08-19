@@ -28,6 +28,23 @@ func GenerateCurlCommand(entry har.HAREntry) string {
 	return cmd.String()
 }
 
+// GenerateCurlArgs generates secure curl arguments from a HAR entry
+func GenerateCurlArgs(entry har.HAREntry) []string {
+	args := []string{"-X", entry.Request.Method, entry.Request.URL}
+	
+	for _, header := range entry.Request.Headers {
+		if strings.ToLower(header.Name) != "host" {
+			args = append(args, "-H", fmt.Sprintf("%s: %s", header.Name, header.Value))
+		}
+	}
+	
+	if entry.Request.PostData != nil && entry.Request.PostData.Text != "" {
+		args = append(args, "-d", entry.Request.PostData.Text)
+	}
+	
+	return args
+}
+
 // OpenInEditor opens content in the user's preferred editor
 func OpenInEditor(content, extension string) (string, error) {
 	editor := os.Getenv("EDITOR")

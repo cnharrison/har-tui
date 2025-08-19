@@ -14,6 +14,46 @@ import (
 	"github.com/cnharrison/har-tui/internal/har"
 )
 
+const (
+	// Layout constants
+	defaultChartWidth = 80
+	requestInfoColumnsWidth = 70  // method + status + host + path + separator
+	minChartWidth = 20
+	stickyHeaderHeight = 2
+	
+	// Timing thresholds
+	smallTimespanMs = 100    // < 100ms considered small timespan
+	largeTimespanMs = 10000  // > 10s considered large timespan
+	staggerOffset = 2        // pixels between staggered bars
+	
+	// Bar width thresholds  
+	minBarWidthThreshold = 5.0   // pixels - switch to duration scaling
+	minDurationForScaling = 20   // ms - minimum duration for special scaling
+	minBarWidthLarge = 3         // pixels for requests > 100ms
+	minBarWidthSmall = 2         // pixels for requests > 20ms
+	durationScalingFactor = 0.8  // use 80% of chart width for duration scaling
+)
+
+// Supported time formats for HAR datetime parsing, in order of preference
+var supportedTimeFormats = []string{
+	"2006-01-02T15:04:05.000Z",     // HAR standard format with milliseconds
+	time.RFC3339Nano,                // RFC3339 with nanoseconds
+	time.RFC3339,                    // RFC3339 standard
+	"2006-01-02T15:04:05Z",         // HAR format without milliseconds
+	"2006-01-02T15:04:05.000-07:00", // HAR with timezone offset
+	"2006-01-02T15:04:05-07:00",     // RFC3339 with timezone offset
+}
+
+// parseHARDateTime robustly parses HAR datetime strings with multiple format support
+func parseHARDateTime(dateTime string) (time.Time, error) {
+	for _, format := range supportedTimeFormats {
+		if t, err := time.Parse(format, dateTime); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unable to parse datetime: %s", dateTime)
+}
+
 type WaterfallView struct {
 	*tview.Flex
 	headerView  *tview.TextView
@@ -24,7 +64,7 @@ type WaterfallView struct {
 	maxDuration float64
 	chartWidth  int
 	showDetails bool
-	selectedRow int
+	manuallyResized bool  // Flag to prevent auto-sizing from overriding manual zoom
 	onSelectionChanged func(int)
 }
 
@@ -43,17 +83,24 @@ func NewWaterfallView() *WaterfallView {
 	
 	// Create flex container
 	flex := tview.NewFlex().SetDirection(tview.FlexRow)
-	flex.AddItem(headerView, 2, 0, false)  // Fixed height for header (time scale + separator)
+	flex.AddItem(headerView, stickyHeaderHeight, 0, false)  // Fixed height for header (time scale + separator)
 	flex.AddItem(listView, 0, 1, true)     // Flexible height for scrollable requests
 	
 	wv := &WaterfallView{
 		Flex:        flex,
 		headerView:  headerView,
 		listView:    listView,
-		chartWidth:  80, // Initial value, will be updated based on terminal width
+		chartWidth:  defaultChartWidth, // Initial value, will be updated based on terminal width
 		showDetails: false,
-		selectedRow: 0,
+		manuallyResized: false,  // Start with auto-sizing enabled
 	}
+	
+	// Set up native selection change callback for j/k key navigation
+	listView.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		if wv.onSelectionChanged != nil {
+			wv.onSelectionChanged(wv.GetSelectedIndex())
+		}
+	})
 	
 	return wv
 }
@@ -63,20 +110,18 @@ func (wv *WaterfallView) SetSelectionChangedFunc(handler func(int)) {
 }
 
 func (wv *WaterfallView) GetSelectedIndex() int {
-	if wv.selectedRow < 0 || wv.selectedRow >= len(wv.indices) {
+	currentRow := wv.listView.GetCurrentItem()
+	if currentRow < 0 || currentRow >= len(wv.indices) {
 		return -1
 	}
-	return wv.indices[wv.selectedRow]
+	return wv.indices[currentRow]
 }
 
 func (wv *WaterfallView) MoveUp() {
 	currentItem := wv.listView.GetCurrentItem()
 	if currentItem > 0 {
 		wv.listView.SetCurrentItem(currentItem - 1)
-		wv.selectedRow = currentItem - 1
-		if wv.onSelectionChanged != nil {
-			wv.onSelectionChanged(wv.GetSelectedIndex())
-		}
+		// SetCurrentItem will trigger SetChangedFunc which handles the callback
 	}
 }
 
@@ -84,10 +129,7 @@ func (wv *WaterfallView) MoveDown() {
 	currentItem := wv.listView.GetCurrentItem()
 	if currentItem < wv.listView.GetItemCount()-1 {
 		wv.listView.SetCurrentItem(currentItem + 1)
-		wv.selectedRow = currentItem + 1
-		if wv.onSelectionChanged != nil {
-			wv.onSelectionChanged(wv.GetSelectedIndex())
-		}
+		// SetCurrentItem will trigger SetChangedFunc which handles the callback
 	}
 }
 
@@ -95,20 +137,14 @@ func (wv *WaterfallView) MoveDown() {
 
 func (wv *WaterfallView) GoToTop() {
 	wv.listView.SetCurrentItem(0)
-	wv.selectedRow = 0
-	if wv.onSelectionChanged != nil {
-		wv.onSelectionChanged(wv.GetSelectedIndex())
-	}
+	// SetCurrentItem will trigger SetChangedFunc which handles the callback
 }
 
 func (wv *WaterfallView) GoToBottom() {
 	if wv.listView.GetItemCount() > 0 {
 		lastItem := wv.listView.GetItemCount() - 1
 		wv.listView.SetCurrentItem(lastItem)
-		wv.selectedRow = lastItem
-		if wv.onSelectionChanged != nil {
-			wv.onSelectionChanged(wv.GetSelectedIndex())
-		}
+		// SetCurrentItem will trigger SetChangedFunc which handles the callback
 	}
 }
 
@@ -151,9 +187,9 @@ func (wv *WaterfallView) Update(entries []har.HAREntry, indices []int) {
 	for _, idx := range filteredIndices {
 		entry := entries[idx]
 		
-		startTime, err := time.Parse("2006-01-02T15:04:05.000Z", entry.StartedDateTime)
+		startTime, err := parseHARDateTime(entry.StartedDateTime)
 		if err != nil {
-			startTime, _ = time.Parse(time.RFC3339, entry.StartedDateTime)
+			continue // Skip entries with unparseable timestamps
 		}
 		
 		requestEndTime := startTime.Add(time.Duration(entry.Time) * time.Millisecond)
@@ -182,8 +218,7 @@ func (wv *WaterfallView) SetSelectedEntry(entryIndex int) {
 	// Find the position in wv.indices that corresponds to this entry index
 	for i, idx := range wv.indices {
 		if idx == entryIndex {
-			wv.selectedRow = i
-			// No need to account for header items now since they're separate
+			// SetCurrentItem will trigger SetChangedFunc to update selectedRow
 			wv.listView.SetCurrentItem(i)
 			return
 		}
@@ -204,12 +239,9 @@ func (wv *WaterfallView) calculateTimings() {
 		}
 		
 		entry := wv.entries[idx]
-		startTime, err := time.Parse("2006-01-02T15:04:05.000Z", entry.StartedDateTime)
+		startTime, err := parseHARDateTime(entry.StartedDateTime)
 		if err != nil {
-			startTime, err = time.Parse(time.RFC3339, entry.StartedDateTime)
-			if err != nil {
-				continue
-			}
+			continue // Skip entries with unparseable timestamps
 		}
 		
 		endTime := startTime.Add(time.Duration(entry.Time) * time.Millisecond)
@@ -231,12 +263,12 @@ func (wv *WaterfallView) renderWaterfall() {
 		return
 	}
 	
-	// Update chart width based on current terminal width
+	// Update chart width based on current terminal width (only if not manually resized)
 	_, _, viewWidth, _ := wv.GetInnerRect()
-	if viewWidth > 0 {
-		// Reserve space for request info columns (method + status + host + path + separator ≈ 70 chars)
-		availableWidth := viewWidth - 70
-		if availableWidth > 20 { // Remove upper bound to use full terminal width
+	if viewWidth > 0 && !wv.manuallyResized {
+		// Reserve space for request info columns
+		availableWidth := viewWidth - requestInfoColumnsWidth
+		if availableWidth > minChartWidth { // Remove upper bound to use full terminal width
 			wv.chartWidth = availableWidth
 		}
 	}
@@ -255,8 +287,19 @@ func (wv *WaterfallView) renderWaterfall() {
 		entryI := wv.entries[sortedIndices[i]]
 		entryJ := wv.entries[sortedIndices[j]]
 		
-		startTimeI, _ := time.Parse("2006-01-02T15:04:05.000Z", entryI.StartedDateTime)
-		startTimeJ, _ := time.Parse("2006-01-02T15:04:05.000Z", entryJ.StartedDateTime)
+		startTimeI, errI := parseHARDateTime(entryI.StartedDateTime)
+		startTimeJ, errJ := parseHARDateTime(entryJ.StartedDateTime)
+		
+		// Handle parsing errors - entries with unparseable times go last
+		if errI != nil && errJ == nil {
+			return false // I goes after J
+		}
+		if errI == nil && errJ != nil {
+			return true // I goes before J
+		}
+		if errI != nil && errJ != nil {
+			return false // Both unparseable, maintain original order
+		}
 		
 		return startTimeI.Before(startTimeJ)
 	})
@@ -272,9 +315,10 @@ func (wv *WaterfallView) renderWaterfall() {
 		wv.listView.AddItem(requestBar, "", 0, nil)
 	}
 	
-	// Restore selection (no need to account for header items now)
-	if wv.selectedRow >= 0 && wv.selectedRow < wv.listView.GetItemCount() {
-		wv.listView.SetCurrentItem(wv.selectedRow)
+	// Preserve current selection during re-render
+	currentSelection := wv.listView.GetCurrentItem()
+	if currentSelection >= 0 && currentSelection < wv.listView.GetItemCount() {
+		wv.listView.SetCurrentItem(currentSelection)
 	}
 }
 
@@ -282,7 +326,7 @@ func (wv *WaterfallView) renderTimeScale() string {
 	var scale strings.Builder
 	
 	// Fixed-width header to align with request info columns
-	headerWidth := 4 + 1 + 3 + 1 + 25 + 1 + 35 + 1 + 1 // method + status + host + path + separator
+	headerWidth := requestInfoColumnsWidth // method + status + host + path + separator
 	scale.WriteString(fmt.Sprintf("%-*s", headerWidth, "[white]Time Scale (log):"))
 	
 	// Calculate tick marks for the logarithmic time scale
@@ -315,9 +359,10 @@ func (wv *WaterfallView) renderTimeScale() string {
 }
 
 func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSelected bool) string {
-	startTime, err := time.Parse("2006-01-02T15:04:05.000Z", entry.StartedDateTime)
+	startTime, err := parseHARDateTime(entry.StartedDateTime)
 	if err != nil {
-		startTime, _ = time.Parse(time.RFC3339, entry.StartedDateTime)
+		// Use current time as fallback for rendering purposes
+		startTime = time.Now()
 	}
 	
 	relativeStart := startTime.Sub(wv.startTime).Seconds() * 1000
@@ -330,15 +375,15 @@ func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSe
 	// For now, let's use a simpler approach: if maxDuration is very large, 
 	// the bars will all be positioned at 0. Let's fix this.
 	
-	if wv.maxDuration <= 100 { // If timespan is very small (< 100ms), don't use positioning
+	if wv.maxDuration <= smallTimespanMs { // If timespan is very small, don't use positioning
 		// All requests at nearly same time - use duration-only scaling without positioning
 		startPos = 0
-	} else if wv.maxDuration > 10000 { // If timespan > 10 seconds, use simplified positioning
+	} else if wv.maxDuration > largeTimespanMs { // If timespan > 10 seconds, use simplified positioning
 		// Large timespan - use request order for staggered positioning instead of time-based
 		// This gives a waterfall effect even when actual times are too close
-		startPos = rowIndex * 2 // Stagger by 2 characters per request
+		startPos = rowIndex * staggerOffset // Stagger by offset pixels per request
 		if startPos > wv.chartWidth/3 { // Don't go beyond 1/3 of chart width
-			startPos = (rowIndex % (wv.chartWidth/6)) * 2
+			startPos = (rowIndex % (wv.chartWidth/6)) * staggerOffset
 		}
 	} else {
 		// Medium timespan - use time-based positioning
@@ -367,7 +412,7 @@ func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSe
 		// Hybrid approach: use duration-based scaling when timespan scaling is too small
 		timespanBasedWidth := float64(wv.chartWidth) * duration / wv.maxDuration
 		
-		if timespanBasedWidth < 5.0 && duration > 20 { // If request > 20ms but bar < 5 pixels
+		if timespanBasedWidth < minBarWidthThreshold && duration > minDurationForScaling { // If request > 20ms but bar < 5 pixels
 			// Find max duration in current filtered set for proportional scaling
 			maxDurationInSet := 0.0
 			for _, idx := range wv.indices {
@@ -378,12 +423,12 @@ func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSe
 			
 			if maxDurationInSet > 0 {
 				// Scale based on durations with more available width
-				durationBasedWidth := float64(wv.chartWidth) * 0.8 * duration / maxDurationInSet
+				durationBasedWidth := float64(wv.chartWidth) * durationScalingFactor * duration / maxDurationInSet
 				barWidth = int(durationBasedWidth)
-				if barWidth < 3 && duration > 100 {
-					barWidth = 3 // Minimum 3 pixels for requests > 100ms
-				} else if barWidth < 2 && duration > 20 {
-					barWidth = 2 // Minimum 2 pixels for requests > 20ms
+				if barWidth < minBarWidthLarge && duration > smallTimespanMs {
+					barWidth = minBarWidthLarge // Minimum 3 pixels for requests > 100ms
+				} else if barWidth < minBarWidthSmall && duration > minDurationForScaling {
+					barWidth = minBarWidthSmall // Minimum 2 pixels for requests > 20ms
 				} else if barWidth < 1 && duration > 0 {
 					barWidth = 1 // Minimum 1 pixel for any request
 				}
@@ -534,13 +579,21 @@ func (wv *WaterfallView) ToggleDetails() {
 func (wv *WaterfallView) SetChartWidth(width int) {
 	if width > 20 && width < 200 {
 		wv.chartWidth = width
+		wv.manuallyResized = true  // Mark as manually resized to prevent auto-sizing
 		wv.renderWaterfall()
 	}
+}
+
+// ResetZoom resets to auto-sizing behavior based on terminal width
+func (wv *WaterfallView) ResetZoom() {
+	wv.manuallyResized = false
+	wv.renderWaterfall()  // This will trigger auto-sizing since manuallyResized is now false
 }
 
 func (wv *WaterfallView) ZoomIn() {
 	if wv.chartWidth < 150 {
 		wv.chartWidth += 10
+		wv.manuallyResized = true  // Mark as manually resized to prevent auto-sizing
 		wv.renderWaterfall()
 	}
 }
@@ -548,6 +601,7 @@ func (wv *WaterfallView) ZoomIn() {
 func (wv *WaterfallView) ZoomOut() {
 	if wv.chartWidth > 30 {
 		wv.chartWidth -= 10
+		wv.manuallyResized = true  // Mark as manually resized to prevent auto-sizing
 		wv.renderWaterfall()
 	}
 }
