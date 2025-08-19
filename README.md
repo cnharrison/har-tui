@@ -103,7 +103,6 @@ make install
 |-----|--------|
 | `/` | Open inline search (filter by host/path) |
 | `h` / `l` | Navigate type filter buttons when focused on top |
-| `Enter` | Apply selected type filter |
 | `s` | Toggle sort by slowest requests |
 | `e` | Toggle errors-only view (4xx/5xx) |
 | `a` | Reset all filters and sorting |
