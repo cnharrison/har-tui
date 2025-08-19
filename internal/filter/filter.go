@@ -29,7 +29,7 @@ func NewFilterState() *FilterState {
 	}
 }
 
-// FilterEntries filters HAR entries based on current filter state
+// FilterEntries filters HAR entries based on current filter state (legacy O(n) method)
 func (f *FilterState) FilterEntries(entries []har.HAREntry) []int {
 	var filteredEntries []int
 	
@@ -67,6 +67,57 @@ func (f *FilterState) FilterEntries(entries []har.HAREntry) []int {
 	}
 	
 	return filteredEntries
+}
+
+// FilterEntriesWithIndex filters HAR entries using O(1) index lookups
+func (f *FilterState) FilterEntriesWithIndex(entries []har.HAREntry, index *har.EntryIndex) []int {
+	var result []int
+	
+	// Start with all entries or type filter
+	if f.ActiveTypeFilter == "all" {
+		for i := range entries {
+			result = append(result, i)
+		}
+	} else {
+		result = index.GetByType(f.ActiveTypeFilter)
+	}
+	
+	// Apply error filter using index
+	if f.ShowErrorsOnly {
+		errorIndices := index.GetErrorIndices(entries)
+		result = intersectIndices(result, errorIndices)
+	}
+	
+	// Apply text filter (still O(n) but only on filtered set)
+	if f.FilterText != "" {
+		textIndices := index.FilterByText(entries, f.FilterText)
+		result = intersectIndices(result, textIndices)
+	}
+	
+	// Sort if requested
+	if f.SortBySlowest {
+		sort.Slice(result, func(i, j int) bool {
+			return entries[result[i]].Time > entries[result[j]].Time
+		})
+	}
+	
+	return result
+}
+
+// intersectIndices returns intersection of two sorted index slices
+func intersectIndices(a, b []int) []int {
+	setA := make(map[int]bool)
+	for _, v := range a {
+		setA[v] = true
+	}
+	
+	var result []int
+	for _, v := range b {
+		if setA[v] {
+			result = append(result, v)
+		}
+	}
+	return result
 }
 
 // Reset resets all filters to their default state
