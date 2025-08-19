@@ -1,6 +1,6 @@
 # 🐱 HAR TUI DELUXE
 <a href="https://asciinema.org/a/BBe0iZNlqZlX5UMrgem4mGrE5" target="_blank"><img src="https://asciinema.org/a/BBe0iZNlqZlX5UMrgem4mGrE5.svg" /></a>
-The world's best TUI HAR viewer. Vibe coded. Vim inspired. Request type filters like on your browser's dev tools. Composable filters. Autodetection, prettification and formatting. Quickly copy any part of any request, or a summary of the whole request, to the clipboard. Quickly output to curl. Replay requests. TUI HAR viewer. You know you want it.
+The world's best TUI HAR viewer. Vibe coded. Vim inspired. Request type filters like on your browser's dev tools. Composable filters. Waterfall view for visualizing request timing and concurrency. Autodetection, prettification and formatting. Quickly copy any part of any request, or a summary of the whole request, to the clipboard. Quickly output to curl. Replay requests. TUI HAR viewer. You know you want it.
 
 ## 🛠 Installation
 
@@ -94,6 +94,7 @@ make install
 | `j` / `k` | Move up/down in request list |
 | `h` / `l` | Navigate filter buttons (top panel) / tabs (bottom panel) |
 | `g` / `G` | Go to top/bottom |
+| `w` | Toggle between request list and waterfall view |
 | `i` | Switch focus between request list and detail panels |
 | `Tab` / `Shift+Tab` | Navigate tabs in detail panel |
 | `Ctrl+D` / `Ctrl+U` | Page down/up in focused detail panel |
