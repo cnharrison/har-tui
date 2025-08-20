@@ -74,8 +74,15 @@ func (app *Application) updateRequestsList() {
 		currentItem := app.requests.GetCurrentItem()
 		if currentItem >= len(app.filteredEntries) {
 			app.requests.SetCurrentItem(0)
+			// Force update since SetCurrentItem might not always trigger SetChangedFunc
+			app.updateTabContent(0)
+		} else {
+			// Always refresh tab content to ensure it matches the current selection
+			app.updateTabContent(currentItem)
 		}
-		app.updateTabContent(app.requests.GetCurrentItem())
+	} else {
+		// Clear content when no entries are available
+		app.bodyView.SetText("[dim]No requests match the current filter[white]")
 	}
 }
 
@@ -145,11 +152,21 @@ func (app *Application) updateTabContent(selectedIndex int) {
 	bodyText := har.DecodeBase64(entry.Response.Content.Text, entry.Response.Content.Encoding)
 	if bodyText != "" {
 		contentType := app.formatter.DetectContentType(bodyText, entry.Response.Content.MimeType)
-		bodyText = app.formatter.FormatContent(bodyText, contentType)
+		formattedBodyText := app.formatter.FormatContent(bodyText, contentType)
+		
+		// Check if this needs tview native layout (side-by-side)
+		if strings.HasPrefix(formattedBodyText, "TVIEW_LAYOUT:") {
+			app.setupSideBySideBodyView(formattedBodyText)
+		} else {
+			// Ensure we're using the normal body view (restore if we had side-by-side)
+			app.restoreNormalBodyView()
+			app.bodyView.SetText(formattedBodyText)
+		}
 	} else {
-		bodyText = "[dim]No body content[white]"
+		// Ensure we're using the normal body view for empty content too
+		app.restoreNormalBodyView()
+		app.bodyView.SetText("[dim]No body content[white]")
 	}
-	app.bodyView.SetText(bodyText)
 	
 	// Cookies tab
 	cookieText := "[yellow]Request Cookies:[white]\n"
@@ -340,6 +357,87 @@ func (app *Application) updateFocusStyles() {
 			if textView, ok := view.(*tview.TextView); ok {
 				textView.SetBorderColor(colors[i])
 				textView.SetTitle(" " + []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i] + " " + tabNames[i] + " ")
+			}
+		}
+	}
+}
+
+// restoreNormalBodyView ensures the Body tab is using the normal TextView (not side-by-side layout)
+func (app *Application) restoreNormalBodyView() {
+	// Simple approach: Always ensure the Body tab has the normal TextView
+	// Remove and re-add the Body tab with the normal body view
+	// This is safe because we only call this when we want normal content
+	app.tabs.RemovePage("Body")
+	app.tabs.AddPage("Body", app.bodyView, true, app.currentTab == 2)
+}
+
+// setupSideBySideBodyView creates a native tview layout for side-by-side content display
+func (app *Application) setupSideBySideBodyView(markerContent string) {
+	// Parse the TVIEW_LAYOUT marker format: "TVIEW_LAYOUT:leftTitle|||SPLIT|||rightTitle|||SPLIT|||leftContent|||SPLIT|||rightContent"
+	if !strings.HasPrefix(markerContent, "TVIEW_LAYOUT:") {
+		// Fallback to regular display if marker is invalid
+		app.bodyView.SetText(markerContent)
+		return
+	}
+	
+	// Extract content from marker
+	content := strings.TrimPrefix(markerContent, "TVIEW_LAYOUT:")
+	parts := strings.Split(content, "|||SPLIT|||")
+	if len(parts) != 4 {
+		// Fallback to regular display if parsing fails
+		app.bodyView.SetText(fmt.Sprintf("[red]Error: Invalid side-by-side layout format (got %d parts, expected 4)[white]", len(parts)))
+		return
+	}
+	
+	leftTitle := parts[0]
+	rightTitle := parts[1]
+	leftContent := parts[2]
+	rightContent := parts[3]
+	
+	// Create left and right text views
+	leftView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true).
+		SetWrap(false).
+		SetScrollable(true)
+	leftView.SetBorder(true).SetTitle(" " + leftTitle + " ")
+	leftView.SetText(leftContent)
+	
+	rightView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetRegions(true).
+		SetWrap(false).
+		SetScrollable(true)
+	rightView.SetBorder(true).SetTitle(" " + rightTitle + " ")
+	rightView.SetText(rightContent)
+	
+	// Create a flex layout to hold both views side by side
+	sideBySideFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
+	sideBySideFlex.AddItem(leftView, 0, 1, false)   // Left panel takes half the space
+	sideBySideFlex.AddItem(rightView, 0, 1, false)  // Right panel takes half the space
+	
+	// Replace the body view with the side-by-side layout
+	// We need to find the body view in the tabs and replace it
+	app.replaceTabbedView("Body", sideBySideFlex)
+}
+
+// replaceTabbedView replaces a specific tab's content with new content
+func (app *Application) replaceTabbedView(tabName string, newContent tview.Primitive) {
+	// Get the current tab structure and replace the body tab specifically
+	// Since we know the body tab is at index 2 (Request=0, Response=1, Body=2, etc.)
+	if app.currentTab == 2 { // Body tab
+		// We need to update the tabs structure
+		// Remove and re-add the Body tab with new content
+		app.tabs.RemovePage("Body")
+		app.tabs.AddPage("Body", newContent, true, app.currentTab == 2)
+		
+		// Update focus styling for the new component if it's currently focused
+		if app.focusOnBottom && app.currentTab == 2 {
+			if flex, ok := newContent.(*tview.Flex); ok {
+				// Set border color for the flex container
+				flex.SetBorderColor(tcell.ColorWhite)
+				flex.SetTitle(fmt.Sprintf(" [yellow]%s[white] %s %s ", 
+					app.getBlinkingArrows(), "📄", "Body"))
 			}
 		}
 	}

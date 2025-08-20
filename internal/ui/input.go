@@ -46,6 +46,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.tabs.SwitchToPage(tabNames[app.currentTab])
 			app.updateTabBar()
 			app.updateFocusStyles()
+			// Refresh content for the current request when switching tabs
+			app.updateTabContent(app.requests.GetCurrentItem())
 			return nil
 		}
 	case tcell.KeyBacktab:
@@ -55,6 +57,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.tabs.SwitchToPage(tabNames[app.currentTab])
 			app.updateTabBar()
 			app.updateFocusStyles()
+			// Refresh content for the current request when switching tabs
+			app.updateTabContent(app.requests.GetCurrentItem())
 			return nil
 		}
 	case tcell.KeyCtrlD:
@@ -149,6 +153,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.tabs.SwitchToPage(tabNames[app.currentTab])
 			app.updateTabBar()
 			app.updateFocusStyles()
+			// Refresh content for the current request when switching tabs
+			app.updateTabContent(app.requests.GetCurrentItem())
 		} else {
 			// Navigate filter buttons when top panel is focused and auto-apply
 			typeFilters := filter.GetTypeFilters()
@@ -171,6 +177,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.tabs.SwitchToPage(tabNames[app.currentTab])
 			app.updateTabBar()
 			app.updateFocusStyles()
+			// Refresh content for the current request when switching tabs
+			app.updateTabContent(app.requests.GetCurrentItem())
 		} else {
 			// Navigate filter buttons when top panel is focused and auto-apply
 			typeFilters := filter.GetTypeFilters()
