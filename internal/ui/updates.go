@@ -323,7 +323,17 @@ func (app *Application) updateFocusStyles() {
 		colors := []tcell.Color{tcell.ColorDarkCyan, tcell.ColorDarkGreen, tcell.ColorDarkBlue, tcell.ColorDarkMagenta, tcell.ColorDarkRed, tcell.ColorYellow}
 		
 		for i, view := range views {
-			if textView, ok := view.(*tview.TextView); ok {
+			// Handle Body tab specially when it's in side-by-side mode
+			if i == 2 && app.isSideBySide && app.bodyFlexContainer != nil { // Body tab index is 2
+				if i == app.currentTab {
+					app.bodyFlexContainer.SetBorderColor(tcell.ColorWhite)
+					app.bodyFlexContainer.SetTitle(fmt.Sprintf(" [yellow]%s[white] %s %s ", 
+						arrow, "📄", "Body"))
+				} else {
+					app.bodyFlexContainer.SetBorderColor(tcell.ColorDarkBlue)
+					app.bodyFlexContainer.SetTitle(" 📄 Body ")
+				}
+			} else if textView, ok := view.(*tview.TextView); ok {
 				if i == app.currentTab {
 					textView.SetBorderColor(tcell.ColorWhite)
 					textView.SetTitle(fmt.Sprintf(" [yellow]%s[white] %s %s ", 
@@ -354,7 +364,11 @@ func (app *Application) updateFocusStyles() {
 		colors := []tcell.Color{tcell.ColorDarkCyan, tcell.ColorDarkGreen, tcell.ColorDarkBlue, tcell.ColorDarkMagenta, tcell.ColorDarkRed, tcell.ColorYellow}
 		
 		for i, view := range views {
-			if textView, ok := view.(*tview.TextView); ok {
+			// Handle Body tab specially when it's in side-by-side mode
+			if i == 2 && app.isSideBySide && app.bodyFlexContainer != nil { // Body tab index is 2
+				app.bodyFlexContainer.SetBorderColor(tcell.ColorDarkBlue)
+				app.bodyFlexContainer.SetTitle(" 📄 Body ")
+			} else if textView, ok := view.(*tview.TextView); ok {
 				textView.SetBorderColor(colors[i])
 				textView.SetTitle(" " + []string{"📋", "📨", "📄", "🍪", "⏱️", "🔍"}[i] + " " + tabNames[i] + " ")
 			}
@@ -374,6 +388,7 @@ func (app *Application) restoreNormalBodyView() {
 	app.isSideBySide = false
 	app.sideBySideViews[0] = nil
 	app.sideBySideViews[1] = nil
+	app.bodyFlexContainer = nil
 }
 
 // setupSideBySideBodyView creates a native tview layout for side-by-side content display
@@ -425,6 +440,12 @@ func (app *Application) setupSideBySideBodyView(markerContent string) {
 	sideBySideFlex := tview.NewFlex().SetDirection(tview.FlexColumn)
 	sideBySideFlex.AddItem(leftView, 0, 1, false)   // Left panel takes half the space
 	sideBySideFlex.AddItem(rightView, 0, 1, false)  // Right panel takes half the space
+	
+	// Set initial border and title for the flex container
+	sideBySideFlex.SetBorder(true).SetTitleAlign(tview.AlignCenter)
+	
+	// Store reference to the flex container for focus styling
+	app.bodyFlexContainer = sideBySideFlex
 	
 	// Replace the body view with the side-by-side layout
 	// We need to find the body view in the tabs and replace it

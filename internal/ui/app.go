@@ -90,6 +90,9 @@ type Application struct {
 	
 	// UI state for top panel
 	showWaterfall bool
+	
+	// Body tab side-by-side flex container (when isSideBySide is true)
+	bodyFlexContainer *tview.Flex
 }
 
 // NewApplication creates a new HAR TUI application
