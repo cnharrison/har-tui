@@ -39,28 +39,25 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	// Global navigation
 	switch event.Key() {
 	case tcell.KeyTab:
-		if !app.focusOnBottom {
-			// Switch to tabs only if not in bottom panel
-			app.currentTab = (app.currentTab + 1) % 6
-			tabNames := []string{"Request", "Response", "Body", "Cookies", "Timings", "Raw"}
-			app.tabs.SwitchToPage(tabNames[app.currentTab])
-			app.updateTabBar()
-			app.updateFocusStyles()
-			// Refresh content for the current request when switching tabs
-			app.updateTabContent(app.requests.GetCurrentItem())
-			return nil
-		}
+		// Tab navigation should always work - switch to next tab
+		app.currentTab = (app.currentTab + 1) % 6
+		tabNames := []string{"Request", "Response", "Body", "Cookies", "Timings", "Raw"}
+		app.tabs.SwitchToPage(tabNames[app.currentTab])
+		app.updateTabBar()
+		app.updateFocusStyles()
+		// Refresh content for the current request when switching tabs
+		app.updateTabContent(app.requests.GetCurrentItem())
+		return nil
 	case tcell.KeyBacktab:
-		if !app.focusOnBottom {
-			app.currentTab = (app.currentTab - 1 + 6) % 6
-			tabNames := []string{"Request", "Response", "Body", "Cookies", "Timings", "Raw"}
-			app.tabs.SwitchToPage(tabNames[app.currentTab])
-			app.updateTabBar()
-			app.updateFocusStyles()
-			// Refresh content for the current request when switching tabs
-			app.updateTabContent(app.requests.GetCurrentItem())
-			return nil
-		}
+		// Shift+Tab navigation should always work - switch to previous tab
+		app.currentTab = (app.currentTab - 1 + 6) % 6
+		tabNames := []string{"Request", "Response", "Body", "Cookies", "Timings", "Raw"}
+		app.tabs.SwitchToPage(tabNames[app.currentTab])
+		app.updateTabBar()
+		app.updateFocusStyles()
+		// Refresh content for the current request when switching tabs
+		app.updateTabContent(app.requests.GetCurrentItem())
+		return nil
 	case tcell.KeyCtrlD:
 		if app.focusOnBottom {
 			// Page down in focused tab
@@ -187,6 +184,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.updateRequestsList()
 			app.updateBottomBar()
 			app.updateFilterBar()
+			// Ensure input capture is still active after content updates
+			app.app.SetInputCapture(app.handleInput)
 			if typeFilters[app.selectedFilterIndex] == "all" {
 				app.showStatusMessage("Showing all request types")
 			} else {

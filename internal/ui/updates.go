@@ -378,11 +378,19 @@ func (app *Application) updateFocusStyles() {
 
 // restoreNormalBodyView ensures the Body tab is using the normal TextView (not side-by-side layout)
 func (app *Application) restoreNormalBodyView() {
+	// Store current focus to restore it after tab modification
+	currentFocus := app.app.GetFocus()
+	
 	// Simple approach: Always ensure the Body tab has the normal TextView
 	// Remove and re-add the Body tab with the normal body view
 	// This is safe because we only call this when we want normal content
 	app.tabs.RemovePage("Body")
 	app.tabs.AddPage("Body", app.bodyView, true, app.currentTab == 2)
+	
+	// Restore focus to prevent input handling issues
+	if currentFocus != nil {
+		app.app.SetFocus(currentFocus)
+	}
 	
 	// Clear side-by-side state
 	app.isSideBySide = false
@@ -457,10 +465,18 @@ func (app *Application) replaceTabbedView(tabName string, newContent tview.Primi
 	// Get the current tab structure and replace the body tab specifically
 	// Since we know the body tab is at index 2 (Request=0, Response=1, Body=2, etc.)
 	if app.currentTab == 2 { // Body tab
+		// Store current focus to restore it after tab modification
+		currentFocus := app.app.GetFocus()
+		
 		// We need to update the tabs structure
 		// Remove and re-add the Body tab with new content
 		app.tabs.RemovePage("Body")
 		app.tabs.AddPage("Body", newContent, true, app.currentTab == 2)
+		
+		// Restore focus to prevent input handling issues
+		if currentFocus != nil {
+			app.app.SetFocus(currentFocus)
+		}
 		
 		// Update focus styling for the new component if it's currently focused
 		if app.focusOnBottom && app.currentTab == 2 {
