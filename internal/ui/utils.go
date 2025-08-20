@@ -13,6 +13,17 @@ import (
 
 // getCurrentView returns the currently active text view for scrolling
 func (app *Application) getCurrentView() *tview.TextView {
+	// Handle side-by-side layout for Body tab (index 2)
+	if app.currentTab == 2 && app.isSideBySide {
+		// For side-by-side layouts, scroll the right pane which contains:
+		// - SVG code (scrollable and useful)
+		// - Hex data (less critical to scroll but consistent behavior)
+		if app.sideBySideViews[1] != nil {
+			return app.sideBySideViews[1] // Right pane
+		}
+	}
+	
+	// Default behavior for normal tabs
 	views := []*tview.TextView{app.requestView, app.responseView, app.bodyView, app.cookiesView, app.timingsView, app.rawView}
 	if app.currentTab >= 0 && app.currentTab < len(views) {
 		return views[app.currentTab]

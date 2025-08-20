@@ -369,6 +369,11 @@ func (app *Application) restoreNormalBodyView() {
 	// This is safe because we only call this when we want normal content
 	app.tabs.RemovePage("Body")
 	app.tabs.AddPage("Body", app.bodyView, true, app.currentTab == 2)
+	
+	// Clear side-by-side state
+	app.isSideBySide = false
+	app.sideBySideViews[0] = nil
+	app.sideBySideViews[1] = nil
 }
 
 // setupSideBySideBodyView creates a native tview layout for side-by-side content display
@@ -410,6 +415,11 @@ func (app *Application) setupSideBySideBodyView(markerContent string) {
 		SetScrollable(true)
 	rightView.SetBorder(true).SetTitle(" " + rightTitle + " ")
 	rightView.SetText(rightContent)
+	
+	// Store references for scrolling support
+	app.sideBySideViews[0] = leftView  // Left pane (image/SVG preview)
+	app.sideBySideViews[1] = rightView // Right pane (hex data/SVG code) 
+	app.isSideBySide = true
 	
 	// Create a flex layout to hold both views side by side
 	sideBySideFlex := tview.NewFlex().SetDirection(tview.FlexColumn)

@@ -62,6 +62,10 @@ type Application struct {
 	animationFrame  int
 	selectedFilterIndex int
 	
+	// Side-by-side layout state
+	sideBySideViews [2]*tview.TextView // [0] = left pane, [1] = right pane
+	isSideBySide    bool
+	
 	// Confirmation/status messages
 	confirmationMessage string
 	confirmationEnd     time.Time
