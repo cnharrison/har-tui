@@ -60,20 +60,12 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case tcell.KeyCtrlD:
 		if app.focusOnBottom {
-			// Page down in focused tab
-			row, _ := app.getCurrentView().GetScrollOffset()
-			app.getCurrentView().ScrollTo(row+10, 0)
+			app.navigateDown(10) // Page down
 			return nil
 		}
 	case tcell.KeyCtrlU:
 		if app.focusOnBottom {
-			// Page up in focused tab
-			row, _ := app.getCurrentView().GetScrollOffset()
-			if row >= 10 {
-				app.getCurrentView().ScrollTo(row-10, 0)
-			} else {
-				app.getCurrentView().ScrollTo(0, 0)
-			}
+			app.navigateUp(10) // Page up
 			return nil
 		}
 	}
@@ -97,49 +89,53 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			}
 		}
 		app.updateFocusStyles()
+		app.updateBottomBar() // Update context info when focus changes
 		return nil
 	case 'j':
 		if app.focusOnBottom {
-			// Scroll down in current tab
-			row, _ := app.getCurrentView().GetScrollOffset()
-			app.getCurrentView().ScrollTo(row+1, 0)
+			app.navigateDown(1)
 		} else if app.showWaterfall {
 			// Move down in waterfall selection
 			app.waterfallView.MoveDown()
+			// Sync requests list selection with waterfall
+			app.syncRequestsListFromWaterfall()
 		} else if currentIndex < len(app.filteredEntries)-1 {
 			app.requests.SetCurrentItem(currentIndex + 1)
 		}
 		return nil
 	case 'k':
 		if app.focusOnBottom {
-			// Scroll up in current tab
-			row, _ := app.getCurrentView().GetScrollOffset()
-			if row > 0 {
-				app.getCurrentView().ScrollTo(row-1, 0)
-			}
+			app.navigateUp(1)
 		} else if app.showWaterfall {
 			// Move up in waterfall selection
 			app.waterfallView.MoveUp()
+			// Sync requests list selection with waterfall
+			app.syncRequestsListFromWaterfall()
 		} else if currentIndex > 0 {
 			app.requests.SetCurrentItem(currentIndex - 1)
 		}
 		return nil
 	case 'g':
 		if app.focusOnBottom {
-			app.getCurrentView().ScrollToBeginning()
+			app.navigateToTop()
 		} else if app.showWaterfall {
 			app.waterfallView.GoToTop()
+			app.syncRequestsListFromWaterfall()
 		} else {
 			app.requests.SetCurrentItem(0)
+			app.updateTabContent(0) // Ensure content is updated when jumping to first item
 		}
 		return nil
 	case 'G':
 		if app.focusOnBottom {
-			app.getCurrentView().ScrollToEnd()
+			app.navigateToBottom()
 		} else if app.showWaterfall {
 			app.waterfallView.GoToBottom()
+			app.syncRequestsListFromWaterfall()
 		} else {
-			app.requests.SetCurrentItem(len(app.filteredEntries) - 1)
+			newIndex := len(app.filteredEntries) - 1
+			app.requests.SetCurrentItem(newIndex)
+			app.updateTabContent(newIndex) // Ensure content is updated when jumping to last item
 		}
 		return nil
 	case 'h':
@@ -150,8 +146,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.tabs.SwitchToPage(tabNames[app.currentTab])
 			app.updateTabBar()
 			app.updateFocusStyles()
-			// Refresh content for the current request when switching tabs
-			app.updateTabContent(app.requests.GetCurrentItem())
+			// Prevent interference from async updates
+			return nil
 		} else {
 			// Navigate filter buttons when top panel is focused and auto-apply
 			typeFilters := filter.GetTypeFilters()
@@ -174,8 +170,8 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.tabs.SwitchToPage(tabNames[app.currentTab])
 			app.updateTabBar()
 			app.updateFocusStyles()
-			// Refresh content for the current request when switching tabs
-			app.updateTabContent(app.requests.GetCurrentItem())
+			// Prevent interference from async updates
+			return nil
 		} else {
 			// Navigate filter buttons when top panel is focused and auto-apply
 			typeFilters := filter.GetTypeFilters()
@@ -184,8 +180,6 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			app.updateRequestsList()
 			app.updateBottomBar()
 			app.updateFilterBar()
-			// Ensure input capture is still active after content updates
-			app.app.SetInputCapture(app.handleInput)
 			if typeFilters[app.selectedFilterIndex] == "all" {
 				app.showStatusMessage("Showing all request types")
 			} else {
@@ -313,6 +307,116 @@ func (app *Application) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		app.saveFilteredHAR()
 	}
 	return event
+}
+
+// Unified navigation functions that handle both JSON line navigation and regular scrolling
+
+// navigateDown moves down by the specified number of lines/rows
+func (app *Application) navigateDown(amount int) {
+	if app.isViewingJSON() {
+		app.moveJSONLine(amount)
+	} else {
+		// Regular scroll for non-JSON content
+		row, _ := app.getCurrentView().GetScrollOffset()
+		app.getCurrentView().ScrollTo(row+amount, 0)
+		// Update bottom bar for path tracking
+		if app.currentTab == 2 { // Body tab
+			app.updateBottomBar()
+		}
+	}
+}
+
+// navigateUp moves up by the specified number of lines/rows
+func (app *Application) navigateUp(amount int) {
+	if app.isViewingJSON() {
+		app.moveJSONLine(-amount)
+	} else {
+		// Regular scroll for non-JSON content
+		row, _ := app.getCurrentView().GetScrollOffset()
+		if row >= amount {
+			app.getCurrentView().ScrollTo(row-amount, 0)
+		} else {
+			app.getCurrentView().ScrollTo(0, 0)
+		}
+		// Update bottom bar for path tracking
+		if app.currentTab == 2 { // Body tab
+			app.updateBottomBar()
+		}
+	}
+}
+
+// navigateToTop jumps to the beginning of content
+func (app *Application) navigateToTop() {
+	if app.isViewingJSON() {
+		app.currentJSONLine = 1
+		app.refreshJSONContent()
+		app.updateBottomBar()
+	} else {
+		app.getCurrentView().ScrollToBeginning()
+	}
+}
+
+// navigateToBottom jumps to the end of content
+func (app *Application) navigateToBottom() {
+	if app.isViewingJSON() {
+		// Ensure we have the correct total lines by getting the current JSON content
+		currentIndex := app.requests.GetCurrentItem()
+		if currentIndex >= 0 && currentIndex < len(app.filteredEntries) {
+			entryIdx := app.filteredEntries[currentIndex]
+			var entries []har.HAREntry
+			if app.isLoading {
+				entries = app.streamingLoader.GetEntries()
+			} else if app.harData != nil {
+				entries = app.harData.Log.Entries
+			}
+			
+			if entryIdx < len(entries) {
+				entry := entries[entryIdx]
+				bodyText := har.DecodeBase64(entry.Response.Content.Text, entry.Response.Content.Encoding)
+				if bodyText != "" {
+					contentType := app.formatter.DetectContentType(bodyText, entry.Response.Content.MimeType)
+					if contentType == "json" {
+						// Get the pretty-printed JSON to ensure we have the correct line count
+						prettyJSON := app.prettyPrintJSON(bodyText)
+						lines := strings.Split(prettyJSON, "\n")
+						totalLines := len(lines)
+						
+						// Now set to the last line
+						app.currentJSONLine = totalLines
+						app.jsonTotalLines = totalLines
+						app.refreshJSONContent()
+						app.updateBottomBar()
+						return
+					}
+				}
+			}
+		}
+		// Fallback for non-JSON or error cases
+		app.getCurrentView().ScrollToEnd()
+	} else {
+		app.getCurrentView().ScrollToEnd()
+	}
+}
+
+// syncRequestsListFromWaterfall syncs the requests list selection to match waterfall selection
+func (app *Application) syncRequestsListFromWaterfall() {
+	if !app.showWaterfall {
+		return
+	}
+	
+	// Get the currently selected entry index from waterfall
+	selectedEntryIndex := app.waterfallView.GetSelectedIndex()
+	
+	// Find the corresponding index in filteredEntries
+	for i, entryIdx := range app.filteredEntries {
+		if entryIdx == selectedEntryIndex {
+			// Update requests list selection without triggering unnecessary updates
+			app.requests.SetCurrentItem(i)
+			// Update tab content to reflect the new selection
+			app.updateTabContent(i)
+			break
+		}
+	}
 }
 
 // generateDescriptiveFilename creates descriptive filenames for exported files

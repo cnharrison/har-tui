@@ -51,6 +51,11 @@ func ExtractIP(urlStr string) string {
 
 // GetRequestType determines the request type based on URL and headers
 func GetRequestType(entry HAREntry) string {
+	// Check for CORS errors first (highest priority)
+	if IsCORSError(entry) {
+		return "cors"
+	}
+	
 	u, err := url.Parse(entry.Request.URL)
 	if err != nil {
 		return "other"
@@ -61,6 +66,30 @@ func GetRequestType(entry HAREntry) string {
 	// Check for WebSocket
 	if u.Scheme == "ws" || u.Scheme == "wss" {
 		return "ws"
+	}
+	
+	// Check Chrome's _resourceType field first (most reliable)
+	if entry.ResourceType != "" {
+		switch strings.ToLower(entry.ResourceType) {
+		case "image":
+			return "img"
+		case "stylesheet":
+			return "css"
+		case "script":
+			return "js"
+		case "document":
+			return "doc"
+		case "media":
+			return "media"
+		case "manifest":
+			return "manifest"
+		case "websocket":
+			return "ws"
+		case "fetch", "xhr":
+			return "fetch"
+		case "wasm":
+			return "wasm"
+		}
 	}
 	
 	// Check content type from response
@@ -168,6 +197,83 @@ func GenerateDescriptiveFilename(entry HAREntry, suffix string) string {
 	filename = regexp.MustCompile(`_+`).ReplaceAllString(filename, "_")
 	
 	return filename
+}
+
+// IsCORSError determines if a request failed due to CORS issues
+func IsCORSError(entry HAREntry) bool {
+	// Only check status 0 (blocked) requests
+	if entry.Response.Status != 0 {
+		return false
+	}
+	
+	method := strings.ToUpper(entry.Request.Method)
+	
+	// 1. Failed preflights: OPTIONS with Access-Control-Request-Method
+	if method == "OPTIONS" {
+		for _, header := range entry.Request.Headers {
+			if strings.ToLower(header.Name) == "access-control-request-method" {
+				return true // This is a failed CORS preflight
+			}
+		}
+		return false
+	}
+	
+	// 2. Check for explicit CORS indicators
+	for _, header := range entry.Request.Headers {
+		headerName := strings.ToLower(header.Name)
+		headerValue := strings.ToLower(header.Value)
+		
+		// Origin header indicates cross-origin request
+		if headerName == "origin" {
+			return true
+		}
+		
+		// Sec-Fetch-Mode: cors indicates CORS request
+		if headerName == "sec-fetch-mode" && headerValue == "cors" {
+			return true
+		}
+	}
+	
+	// 3. Check for the specific flatfile pattern: 
+	//    Cross-subdomain + Content-Type: application/json on GET (triggers preflight)
+	if method == "GET" {
+		var hasCrossOrigin, hasContentTypeJson bool
+		
+		// Parse request URL
+		requestURL, err := url.Parse(entry.Request.URL)
+		if err != nil {
+			return false
+		}
+		requestHost := requestURL.Host
+		
+		// Check headers
+		for _, header := range entry.Request.Headers {
+			headerName := strings.ToLower(header.Name)
+			headerValue := strings.ToLower(header.Value)
+			
+			// Cross-origin via Referer
+			if headerName == "referer" {
+				if refererURL, err := url.Parse(header.Value); err == nil {
+					refererHost := refererURL.Host
+					if requestHost != "" && refererHost != "" && requestHost != refererHost {
+						hasCrossOrigin = true
+					}
+				}
+			}
+			
+			// Content-Type: application/json triggers preflight on GET
+			if headerName == "content-type" && strings.Contains(headerValue, "application/json") {
+				hasContentTypeJson = true
+			}
+		}
+		
+		// This specific combination is almost certainly a CORS issue
+		if hasCrossOrigin && hasContentTypeJson {
+			return true
+		}
+	}
+	
+	return false
 }
 
 // SaveFilteredHAR saves filtered HAR entries to a new file

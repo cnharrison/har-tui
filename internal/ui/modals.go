@@ -35,7 +35,6 @@ func (app *Application) showHelpModal() {
 [yellow]Filtering & Sorting:[white]
   [cyan]/[white]            Open filter dialog (host/path)
   [cyan]h/l[white]          Navigate type filter buttons (when top focused)
-  [cyan]Enter[white]        Activate selected type filter (when top focused)
   [cyan]s[white]            Toggle sort by slowest requests
   [cyan]e[white]            Toggle errors-only view (4xx/5xx)
   [cyan]a[white]            Reset all filters and sorting

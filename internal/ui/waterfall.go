@@ -455,7 +455,9 @@ func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSe
 	status := entry.Response.Status
 	
 	statusColor := "white"
-	if status >= 400 {
+	if status == 0 {
+		statusColor = "red"  // Aborted/cancelled requests
+	} else if status >= 400 {
 		statusColor = "red"
 	} else if status >= 300 {
 		statusColor = "yellow"
@@ -480,7 +482,17 @@ func (wv *WaterfallView) renderRequestBar(entry har.HAREntry, rowIndex int, isSe
 		pathCol = fmt.Sprintf("[dim]%-35s[-]", truncateString(path, 35))
 	}
 	
-	bar.WriteString(fmt.Sprintf("%s %s %s %s │", methodCol, statusCol, hostCol, pathCol))
+	// Add CORS indicator for CORS errors
+	corsIndicator := ""
+	if har.IsCORSError(entry) {
+		if isSelected {
+			corsIndicator = " [yellow:black]CORS[-]"
+		} else {
+			corsIndicator = " [red]CORS[-]"
+		}
+	}
+	
+	bar.WriteString(fmt.Sprintf("%s %s %s %s%s │", methodCol, statusCol, hostCol, pathCol, corsIndicator))
 	
 	// Add spacing to align bars
 	bar.WriteString(strings.Repeat(" ", startPos))

@@ -68,6 +68,10 @@ type HAREntry struct {
 	Request         HARRequest  `json:"request"`
 	Response        HARResponse `json:"response"`
 	Timings         HARTimings  `json:"timings"`
+	
+	// Chrome-specific fields (optional)
+	ResourceType string `json:"_resourceType,omitempty"`
+	Priority     string `json:"_priority,omitempty"`
 }
 
 // HARLog represents the log object in a HAR file

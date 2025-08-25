@@ -51,7 +51,7 @@ func (app *Application) startAnimationLoop() {
 			app.animationFrame++
 			app.app.QueueUpdateDraw(func() {
 				app.updateFocusStyles()
-				app.updateBottomBar()
+				app.updateBottomBarSafe() // Use safe version that doesn't interfere with JSON navigation
 			})
 		}
 	}()

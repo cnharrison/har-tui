@@ -36,7 +36,7 @@ func (f *FilterState) FilterEntries(entries []har.HAREntry) []int {
 	
 	for i, entry := range entries {
 		// Apply error filter
-		if f.ShowErrorsOnly && entry.Response.Status < 400 {
+		if f.ShowErrorsOnly && entry.Response.Status < 400 && entry.Response.Status != 0 {
 			continue
 		}
 		
@@ -136,7 +136,7 @@ func (f *FilterState) SetTypeFilter(filterType string) {
 
 // GetTypeFilters returns available type filters
 func GetTypeFilters() []string {
-	return []string{"all", "fetch", "doc", "css", "js", "img", "media", "manifest", "ws", "wasm", "other"}
+	return []string{"all", "fetch", "doc", "css", "js", "img", "media", "manifest", "cors", "ws", "wasm", "other"}
 }
 
 // GenerateFilteredFilename creates a descriptive filename based on current filters

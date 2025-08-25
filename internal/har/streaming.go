@@ -85,7 +85,7 @@ func (idx *EntryIndex) GetErrorIndices(entries []HAREntry) []int {
 	
 	var result []int
 	for status, indices := range idx.byStatus {
-		if status >= 400 {
+		if status >= 400 || status == 0 {
 			result = append(result, indices...)
 		}
 	}

@@ -9,6 +9,13 @@ import (
 	"github.com/cnharrison/har-tui/internal/format"
 )
 
+// JSONPathInfo holds cached JSON path information for performance
+type JSONPathInfo struct {
+	lineToPath map[int]string // Maps line numbers to JSON paths
+	totalLines int
+	isValid    bool // Whether this JSON was successfully parsed
+}
+
 const (
 	// Animation and timing constants
 	animationIntervalMs = 500
@@ -66,6 +73,12 @@ type Application struct {
 	sideBySideViews [2]*tview.TextView // [0] = left pane, [1] = right pane
 	isSideBySide    bool
 	
+	// JSON path tracking (performance-optimized, cached per entry)
+	jsonPathCache    map[int]*JSONPathInfo // Cache by entry index
+	currentJSONEntry int                   // Track which entry we have path info for
+	currentJSONLine  int                   // Current highlighted line in JSON (1-based)
+	jsonTotalLines   int                   // Total lines in current JSON content
+	
 	// Confirmation/status messages
 	confirmationMessage string
 	confirmationEnd     time.Time
@@ -111,6 +124,8 @@ func NewApplication(harData *har.HARFile, filename string) *Application {
 		streamingLoader: har.NewStreamingLoader(),
 		isLoading: false,
 		loadingProgress: 0,
+		jsonPathCache: make(map[int]*JSONPathInfo),
+		currentJSONEntry: -1,
 	}
 	
 	// Initialize filtered entries for existing data
@@ -139,6 +154,8 @@ func NewApplicationStreaming(filename string) *Application {
 		loadingProgress: 0,
 		lastUpdateCount: 0,
 		batchUpdateSize: defaultBatchUpdateSize,
+		jsonPathCache: make(map[int]*JSONPathInfo),
+		currentJSONEntry: -1,
 	}
 	
 	// Set up streaming callbacks
