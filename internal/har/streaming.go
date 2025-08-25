@@ -105,14 +105,93 @@ func (idx *EntryIndex) FilterByText(entries []HAREntry, text string) []int {
 	text = strings.ToLower(text)
 	
 	for i, entry := range entries {
-		if u, err := url.Parse(entry.Request.URL); err == nil {
-			if strings.Contains(strings.ToLower(u.Host), text) ||
-			   strings.Contains(strings.ToLower(u.Path), text) {
-				result = append(result, i)
-			}
+		if idx.matchesTextSearch(entry, text) {
+			result = append(result, i)
 		}
 	}
 	return result
+}
+
+// matchesTextSearch performs comprehensive text matching across all request/response fields
+func (idx *EntryIndex) matchesTextSearch(entry HAREntry, searchText string) bool {
+	// 1. Search URL (host, path, query parameters)
+	if u, err := url.Parse(entry.Request.URL); err == nil {
+		if strings.Contains(strings.ToLower(u.Host), searchText) ||
+		   strings.Contains(strings.ToLower(u.Path), searchText) ||
+		   strings.Contains(strings.ToLower(u.RawQuery), searchText) {
+			return true
+		}
+	}
+	
+	// 2. Search request method
+	if strings.Contains(strings.ToLower(entry.Request.Method), searchText) {
+		return true
+	}
+	
+	// 3. Search request headers (names and values)
+	for _, header := range entry.Request.Headers {
+		if strings.Contains(strings.ToLower(header.Name), searchText) ||
+		   strings.Contains(strings.ToLower(header.Value), searchText) {
+			return true
+		}
+	}
+	
+	// 4. Search response headers (names and values)
+	for _, header := range entry.Response.Headers {
+		if strings.Contains(strings.ToLower(header.Name), searchText) ||
+		   strings.Contains(strings.ToLower(header.Value), searchText) {
+			return true
+		}
+	}
+	
+	// 5. Search response status text
+	if strings.Contains(strings.ToLower(entry.Response.StatusText), searchText) {
+		return true
+	}
+	
+	// 6. Search response content type
+	if strings.Contains(strings.ToLower(entry.Response.Content.MimeType), searchText) {
+		return true
+	}
+	
+	// 7. Search request body (if present and not too large)
+	if entry.Request.PostData != nil && entry.Request.PostData.Text != "" {
+		// Limit body search to reasonable size for performance
+		bodyText := entry.Request.PostData.Text
+		if len(bodyText) <= 10000 { // 10KB limit for body search
+			if strings.Contains(strings.ToLower(bodyText), searchText) {
+				return true
+			}
+		}
+	}
+	
+	// 8. Search response body (if present and not too large)
+	if entry.Response.Content.Text != "" {
+		// Decode and search response body
+		bodyText := DecodeBase64(entry.Response.Content.Text, entry.Response.Content.Encoding)
+		if len(bodyText) <= 10000 { // 10KB limit for body search
+			if strings.Contains(strings.ToLower(bodyText), searchText) {
+				return true
+			}
+		}
+	}
+	
+	// 9. Search cookies (names and values)
+	for _, cookie := range entry.Request.Cookies {
+		if strings.Contains(strings.ToLower(cookie.Name), searchText) ||
+		   strings.Contains(strings.ToLower(cookie.Value), searchText) {
+			return true
+		}
+	}
+	
+	for _, cookie := range entry.Response.Cookies {
+		if strings.Contains(strings.ToLower(cookie.Name), searchText) ||
+		   strings.Contains(strings.ToLower(cookie.Value), searchText) {
+			return true
+		}
+	}
+	
+	return false
 }
 
 // Use util.IntersectIndices for index intersection operations

@@ -349,8 +349,16 @@ func (app *Application) updateBottomBar() {
 			finalText := leftText + strings.Repeat(" ", padding) + rightText
 			app.bottomBar.SetText(finalText)
 		} else {
-			// Fallback: show both left and right with minimal spacing
-			app.bottomBar.SetText(leftText + rightText)
+			// Fallback: intelligently truncate rightText to fit if needed
+			maxRightWidth := width - leftLen - 2 // Leave some margin
+			if maxRightWidth > 10 && rightLen > maxRightWidth {
+				// Truncate context info intelligently, preserving important parts
+				truncatedRight := app.truncateContextInfo(rightText, maxRightWidth)
+				app.bottomBar.SetText(leftText + truncatedRight)
+			} else {
+				// Show both left and right with minimal spacing
+				app.bottomBar.SetText(leftText + rightText)
+			}
 		}
 	} else {
 		app.bottomBar.SetText(" " + statusText.String() + " ")
@@ -425,8 +433,16 @@ func (app *Application) updateBottomBarSafe() {
 			finalText := leftText + strings.Repeat(" ", padding) + rightText
 			app.bottomBar.SetText(finalText)
 		} else {
-			// Fallback: show both left and right with minimal spacing
-			app.bottomBar.SetText(leftText + rightText)
+			// Fallback: intelligently truncate rightText to fit if needed
+			maxRightWidth := width - leftLen - 2 // Leave some margin
+			if maxRightWidth > 10 && rightLen > maxRightWidth {
+				// Truncate context info intelligently, preserving important parts
+				truncatedRight := app.truncateContextInfo(rightText, maxRightWidth)
+				app.bottomBar.SetText(leftText + truncatedRight)
+			} else {
+				// Show both left and right with minimal spacing
+				app.bottomBar.SetText(leftText + rightText)
+			}
 		}
 	} else {
 		app.bottomBar.SetText(" " + statusText.String() + " ")
@@ -1055,6 +1071,122 @@ func calculateVisibleLength(s string) int {
 	}
 	
 	return visibleLen
+}
+
+// truncateContextInfo intelligently truncates context information to fit available space
+func (app *Application) truncateContextInfo(contextText string, maxWidth int) string {
+	// Remove leading/trailing spaces for processing
+	trimmed := strings.TrimSpace(contextText)
+	
+	// If it already fits, return as-is
+	if calculateVisibleLength(trimmed) <= maxWidth {
+		return contextText
+	}
+	
+	// Split by pipe separators to prioritize parts
+	parts := strings.Split(trimmed, " | ")
+	if len(parts) <= 1 {
+		// No separators, just truncate with ellipsis
+		return app.truncateWithEllipsis(trimmed, maxWidth)
+	}
+	
+	// Build result prioritizing important information
+	var result []string
+	currentLen := 0
+	
+	// Priority order: size info, lines, path, then others
+	priorityOrder := make([]string, 0, len(parts))
+	otherParts := make([]string, 0)
+	
+	for _, part := range parts {
+		trimPart := strings.TrimSpace(part)
+		if strings.Contains(trimPart, "lines") || strings.Contains(trimPart, "B") || strings.Contains(trimPart, "KB") || strings.Contains(trimPart, "MB") {
+			// High priority: size and line info
+			priorityOrder = append(priorityOrder, trimPart)
+		} else if strings.Contains(trimPart, "arrays") || strings.Contains(trimPart, "objects") {
+			// Medium priority: structural info
+			priorityOrder = append(priorityOrder, trimPart)
+		} else {
+			// Lower priority
+			otherParts = append(otherParts, trimPart)
+		}
+	}
+	
+	// Append other parts after priority ones
+	priorityOrder = append(priorityOrder, otherParts...)
+	
+	// Build final string within width constraints
+	for i, part := range priorityOrder {
+		partLen := calculateVisibleLength(part)
+		separatorLen := 3 // " | "
+		
+		if i == 0 {
+			// First part, no separator needed
+			if partLen <= maxWidth {
+				result = append(result, part)
+				currentLen = partLen
+			} else {
+				// Even first part doesn't fit, truncate it
+				result = append(result, app.truncateWithEllipsis(part, maxWidth))
+				break
+			}
+		} else {
+			// Need separator + part
+			neededLen := separatorLen + partLen
+			if currentLen + neededLen <= maxWidth {
+				result = append(result, part)
+				currentLen += neededLen
+			} else {
+				// Try to fit a truncated version
+				availableWidth := maxWidth - currentLen - separatorLen - 3 // Reserve 3 for "..."
+				if availableWidth > 5 {
+					truncatedPart := app.truncateWithEllipsis(part, availableWidth)
+					result = append(result, truncatedPart)
+				}
+				break
+			}
+		}
+	}
+	
+	return " " + strings.Join(result, " | ") + " "
+}
+
+// truncateWithEllipsis truncates text to fit width, preserving color codes
+func (app *Application) truncateWithEllipsis(text string, maxWidth int) string {
+	if maxWidth <= 3 {
+		return "..."
+	}
+	
+	if calculateVisibleLength(text) <= maxWidth {
+		return text
+	}
+	
+	// Build result character by character, preserving color codes
+	var result strings.Builder
+	visibleCount := 0
+	inTag := false
+	runes := []rune(text)
+	
+	for _, r := range runes {
+		if r == '[' {
+			inTag = true
+			result.WriteRune(r)
+		} else if r == ']' && inTag {
+			inTag = false
+			result.WriteRune(r)
+		} else if inTag {
+			result.WriteRune(r)
+		} else {
+			if visibleCount >= maxWidth-3 {
+				result.WriteString("...")
+				break
+			}
+			result.WriteRune(r)
+			visibleCount++
+		}
+	}
+	
+	return result.String()
 }
 
 // buildJSONPathMapping creates a mapping of line numbers to JSON paths using gjson
