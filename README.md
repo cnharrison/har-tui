@@ -1,6 +1,6 @@
 # 🐱 HAR TUI DELUXE
 <a href="https://asciinema.org/a/BBe0iZNlqZlX5UMrgem4mGrE5" target="_blank"><img src="https://asciinema.org/a/BBe0iZNlqZlX5UMrgem4mGrE5.svg" /></a>
-The world's best TUI HAR viewer. Vibe coded. Vim inspired. Request type filters like on your browser's dev tools. Composable filters. Waterfall view for visualizing request timing and concurrency. Professional syntax highlighting with Chroma. Image and SVG display with side-by-side hex previews. Autodetection, prettification and formatting. Quickly copy any part of any request, or a summary of the whole request, to the clipboard. Quickly output to curl. Replay requests. TUI HAR viewer. You know you want it.
+The world's best TUI HAR viewer. Vibe coded. Vim inspired. Request type filters like on your browser's dev tools. Composable filters. Waterfall view for visualizing request timing and concurrency. Professional syntax highlighting with Chroma. Image and SVG display in the terminal if your teriminal supports, otherwise recreate a facsimile of the image with ASCII blocks. Code autodetection, prettification and formatting. Quickly copy any part of any request, or a summary of the whole request, to the clipboard. Scroll through a JSON body and copy the path under your cursor in one keystroke. Quickly output to curl. Replay requests. TUI HAR viewer. You know you want it.
 
 ## 🛠 Installation
 
