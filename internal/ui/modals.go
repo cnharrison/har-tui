@@ -43,7 +43,7 @@ func (app *Application) showHelpModal() {
   [cyan]b[white]            Save current response body to file
   [cyan]c[white]            Save current request as cURL command
   [cyan]m[white]            Generate markdown summary and copy to clipboard
-  [cyan]y[white]            Copy modal - copy various request/response parts
+  [cyan]y[white]            Copy modal - copy various request/response parts & JSON paths
   [cyan]E[white]            Edit request/response content in $EDITOR
   [cyan]R[white]            Replay current request
   [cyan]S[white]            Save filtered HAR entries to new file
@@ -195,6 +195,15 @@ func (app *Application) showCopyModal(entry har.HAREntry) {
 	hasRequestBody := entry.Request.PostData != nil && entry.Request.PostData.Text != ""
 	hasResponseBody := entry.Response.Content.Text != ""
 	
+	// Check if we have a current JSON path
+	currentIndex := app.requests.GetCurrentItem()
+	hasJSONPath := false
+	if currentIndex >= 0 && currentIndex < len(app.filteredEntries) {
+		entryIdx := app.filteredEntries[currentIndex]
+		jsonPath := app.getCurrentJSONPath(entryIdx)
+		hasJSONPath = jsonPath != ""
+	}
+	
 	// Build copy options text
 	var copyText strings.Builder
 	copyText.WriteString("Select content to copy to clipboard:\n\n")
@@ -222,6 +231,14 @@ func (app *Application) showCopyModal(entry har.HAREntry) {
 	copyText.WriteString("[yellow]8[white] - Full Response Summary\n")
 	copyText.WriteString("[yellow]9[white] - cURL Command\n")
 	copyText.WriteString("[yellow]0[white] - Raw JSON (Complete Entry)\n")
+	
+	// JSON Path - only show if available
+	if hasJSONPath {
+		copyText.WriteString("[yellow]p[white] - JSON Path (current location)\n")
+	} else {
+		copyText.WriteString("[dim]p - JSON Path (not in JSON content)[-]\n")
+	}
+	
 	copyText.WriteString("[yellow]m[white] - Markdown Summary\n")
 	copyText.WriteString("[yellow]q[white] - Cancel")
 	
@@ -242,7 +259,7 @@ func (app *Application) showCopyModal(entry har.HAREntry) {
 			AddItem(nil, 0, 1, false).           // Left spacer
 			AddItem(copyView, 0, 1, true).       // Copy content
 			AddItem(nil, 0, 1, false),           // Right spacer
-		14, 0, true) // Fixed height
+		15, 0, true) // Fixed height (increased for JSON path option)
 	copyContainer.AddItem(nil, 0, 1, false) // Bottom spacer
 
 	copyContainer.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -324,6 +341,30 @@ func (app *Application) showCopyModal(entry har.HAREntry) {
 			rawJSON, _ := json.MarshalIndent(entry, "", "  ")
 			content = string(rawJSON)
 			description = "Raw JSON entry copied"
+		case 'p':
+			if !hasJSONPath {
+				app.showStatusMessage("No JSON path available - not viewing JSON content")
+				app.app.SetRoot(app.layout, true)
+				return nil
+			}
+			// Get current JSON path from the currently selected request
+			currentIndex := app.requests.GetCurrentItem()
+			if currentIndex >= 0 && currentIndex < len(app.filteredEntries) {
+				entryIdx := app.filteredEntries[currentIndex]
+				jsonPath := app.getCurrentJSONPath(entryIdx)
+				if jsonPath != "" {
+					content = jsonPath
+					description = "JSON path copied"
+				} else {
+					app.showStatusMessage("JSON path no longer available")
+					app.app.SetRoot(app.layout, true)
+					return nil
+				}
+			} else {
+				app.showStatusMessage("No request selected")
+				app.app.SetRoot(app.layout, true)
+				return nil
+			}
 		case 'm':
 			content = export.GenerateMarkdownSummary(entry)
 			description = "Markdown summary copied"
